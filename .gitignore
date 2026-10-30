@@ -37,3 +37,19 @@ data/
 
 # 一次性临时脚本（不跟踪）
 scripts/_*.sh
+/.idea/ai_customer_service.iml
+/.idea/modules.xml
+/.idea/inspectionProfiles/profiles_settings.xml
+/.idea/vcs.xml
+/.idea/misc.xml
+/.idea/ai-customer-service.iml
+/python_agent/.idea/inspectionProfiles/profiles_settings.xml
+/python_agent/.idea/modules.xml
+/python_agent/.idea/python_agent.iml
+/python_agent/.idea/vcs.xml
+.venv/
+/python_agent/.idea/runConfigurations/Attach_to_agent_debugpy.xml
+/pyproject.toml
+/.idea/webResources.xml
+/python_agent/.idea/misc.xml
+/.idea/runConfigurations/Attach_to_agent_debugpy.xml

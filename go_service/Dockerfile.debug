@@ -1,0 +1,28 @@
+# 仅供远程调试使用，不要用于生产
+# 与 go_service/Dockerfile 的差异：
+#   1) 构建时关闭内联与优化（-N -l），保证断点与变量查看可用
+#   2) 镜像内安装 delve，并以 headless 模式启动，供 IDE attach
+FROM golang:1.25-alpine AS builder
+WORKDIR /build
+ENV GOPROXY=https://goproxy.cn,direct
+COPY go_service/go.mod go_service/go.sum ./
+RUN go mod download
+COPY go_service/ .
+RUN go mod tidy
+RUN CGO_ENABLED=0 go build -gcflags="all=-N -l" -o go_service .
+RUN go install github.com/go-delve/delve/cmd/dlv@latest
+
+FROM alpine:3.24
+RUN apk add --no-cache tzdata
+ENV TZ=Asia/Shanghai
+
+WORKDIR /app
+COPY --from=builder /build/go_service ./
+COPY --from=builder /go/bin/dlv /usr/local/bin/dlv
+COPY go_service/config.yaml ./
+EXPOSE 8080 2345
+
+# 注意：dlv 1.27 的子命令必须紧跟可执行名（dlv exec <path> [flags]），
+# 把 flag 写在 exec 前面会报 `unknown command "/app/go_service"`
+# headless：容器启动即开始服务（--continue），IDE 可随时 attach/断开重连
+CMD ["dlv", "exec", "/app/go_service", "--listen=:2345", "--headless", "--api-version=2", "--accept-multiclient", "--continue"]
