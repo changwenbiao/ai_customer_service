@@ -13,6 +13,7 @@ import uuid
 from qdrant_client.http import models as qmodels
 
 from agent_factory import ensure_tenant_vector
+from cache import clear_kb_cache
 from db_ops import collection_name
 from db_pool import _pool_conn
 from routers_kb import KB_INDEX_QUEUE, read_kb_file_text
@@ -92,6 +93,9 @@ async def _index_one(app, doc_id: str, tenant_id: str) -> None:
         # tenant_retrievers 缓存已停用（retriever 链路废弃：search_kb 直调 store 拿相似度分数，
         # 详见 agent_factory.get_tenant_retriever 注释），索引完成无需再失效 retriever
         # app.state.tenant_retrievers.pop(tenant_id, None)
+        # 需求4：新向量此刻生效，清该租户检索缓存（旧分片内容不能再命中）
+        n = clear_kb_cache(tenant_id)
+        logger.info("KB cache invalidated tenant=%s n=%d", tenant_id, n)
         logger.info("KB worker indexed tenant=%s doc_id=%s chunks=%d", tenant_id, doc_id, len(texts))
     except Exception as e:
         logger.exception("KB worker index error doc_id=%s", doc_id)

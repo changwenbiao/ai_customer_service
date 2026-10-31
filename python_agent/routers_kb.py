@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from qdrant_client.http import models as qmodels
 
 from agent_factory import ensure_tenant_vector
+from cache import clear_kb_cache
 from db_ops import (check_kb_quota, collection_name, get_platform_setting,
                     set_platform_setting, tenant_from_request)
 from db_pool import _pool_conn
@@ -325,6 +326,9 @@ async def kb_delete(doc_id: str, request: Request):
         # tenant_retrievers 缓存已停用（retriever 链路废弃：search_kb 直调 store 拿相似度分数，
         # 详见 agent_factory.get_tenant_retriever 注释），无需再失效
         # request.app.state.tenant_retrievers.pop(tenant_id, None)
+        # 需求4：检索结果缓存按租户立即失效（向量已删，缓存的旧答案不能再命中）
+        n = clear_kb_cache(tenant_id)
+        logger.info("KB cache invalidated tenant=%s n=%d", tenant_id, n)
         logger.info("KB delete tenant=%s doc_id=%s", tenant_id, doc_id)
         return {"code": 0, "data": {"doc_id": doc_id}}
     except Exception as e:
@@ -385,6 +389,9 @@ async def kb_reindex(doc_id: str, request: Request):
             pass
         # tenant_retrievers 已停用（retriever 链路废弃，见 agent_factory.get_tenant_retriever 注释）
         # request.app.state.tenant_retrievers.pop(tenant_id, None)
+        # 需求4：旧向量已删，检索缓存立即失效（不能等 worker 写完新向量，窗口期旧答案必须失效）
+        n = clear_kb_cache(tenant_id)
+        logger.info("KB cache invalidated tenant=%s n=%d", tenant_id, n)
 
         if not await enqueue_index(request.app, doc_id, tenant_id):
             return {"code": 500, "msg": "索引队列不可用，请稍后重试"}
@@ -521,6 +528,9 @@ async def kb_batch(request: Request):
             delete_kb_file(tenant_id, d, file_names.get(d, ""))
         # tenant_retrievers 已停用（retriever 链路废弃，见 agent_factory.get_tenant_retriever 注释）
         # request.app.state.tenant_retrievers.pop(tenant_id, None)
+        # 需求4：检索结果缓存按租户立即失效（批量删除后旧答案不能再命中）
+        n = clear_kb_cache(tenant_id)
+        logger.info("KB cache invalidated tenant=%s n=%d", tenant_id, n)
         done = len(valid)
     elif action == "category":
         async with _pool_conn(request.app) as conn:

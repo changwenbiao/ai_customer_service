@@ -45,8 +45,18 @@ def _kb_cache_cleanup():
     return len(expired)
 
 
-def clear_kb_cache():
-    """清空全部知识库检索结果缓存（模型/向量配置变更时调用，避免旧答案残留）"""
-    n = len(_kb_cache)
-    _kb_cache.clear()
-    return n
+def clear_kb_cache(tenant_id: str | None = None):
+    """清空知识库检索结果缓存。
+    tenant_id 为 None → 全清（模型/向量配置变更时用）；
+    指定 tenant_id → 只清该租户（KB 文档变更时用，不误伤其他租户）。
+    key 格式为 "tenant_id:md5(query)"，按前缀匹配。返回清理条数。
+    """
+    if tenant_id is None:
+        n = len(_kb_cache)
+        _kb_cache.clear()
+        return n
+    prefix = f"{tenant_id}:"
+    keys = [k for k in _kb_cache if k.startswith(prefix)]
+    for k in keys:
+        del _kb_cache[k]
+    return len(keys)
