@@ -363,13 +363,14 @@ async def session_cleanup_loop(app: FastAPI):
             logger.exception("periodic session cleanup failed")
         finally:
             await _release_cleanup_lock(app)
-        # P2-2：同时清理过期的知识库检索缓存
-        try:
-            expired = _kb_cache_cleanup()
-            if expired > 0:
-                logger.info(f"🧹 KB cache cleanup: removed {expired} expired entries, total {len(_kb_cache)}")
-        except Exception:
-            logger.exception("KB cache cleanup failed")
+        # 需求10：检索缓存已搬到 Redis，TTL 到期由 Redis 自动过期，不再需要进程内清理任务。
+        # 原实现（进程内 dict + 定期扫描过期）已停用，保留注释便于对照：
+        # try:
+        #     expired = _kb_cache_cleanup()
+        #     if expired > 0:
+        #         logger.info(f"🧹 KB cache cleanup: removed {expired} expired entries, total {len(_kb_cache)}")
+        # except Exception:
+        #     logger.exception("KB cache cleanup failed")
         await asyncio.sleep(SESSION_CLEANUP_INTERVAL)
 
 

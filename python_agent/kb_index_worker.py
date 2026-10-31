@@ -94,7 +94,8 @@ async def _index_one(app, doc_id: str, tenant_id: str) -> None:
         # 详见 agent_factory.get_tenant_retriever 注释），索引完成无需再失效 retriever
         # app.state.tenant_retrievers.pop(tenant_id, None)
         # 需求4：新向量此刻生效，清该租户检索缓存（旧分片内容不能再命中）
-        n = clear_kb_cache(tenant_id)
+        # 需求10：缓存已搬到 Redis（多实例共享），失效需 await
+        n = await clear_kb_cache(app.state.redis_client, tenant_id)
         logger.info("KB cache invalidated tenant=%s n=%d", tenant_id, n)
         logger.info("KB worker indexed tenant=%s doc_id=%s chunks=%d", tenant_id, doc_id, len(texts))
     except Exception as e:

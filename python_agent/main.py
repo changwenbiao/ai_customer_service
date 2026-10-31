@@ -274,7 +274,10 @@ from db_pool import _pool_conn
 
 
 # ====================== P2-2：知识库检索缓存（已拆分到 cache.py） ======================
-from cache import _kb_cache_key, _kb_cache_get, _kb_cache_set, _kb_cache_cleanup, KB_CACHE_TTL
+# 需求10：缓存已改为 Redis 版（cache.kb_cache_get / kb_cache_set / kb_singleflight），
+# 原进程内 dict 接口（_kb_cache_key/_kb_cache_get/_kb_cache_set/_kb_cache_cleanup）已移除，
+# 各消费方均为显式调用，此处无需再导入。
+# from cache import _kb_cache_key, _kb_cache_get, _kb_cache_set, _kb_cache_cleanup, KB_CACHE_TTL
 
 
 app = FastAPI(title="CustomerServiceAgent Internal Service", lifespan=lifespan)

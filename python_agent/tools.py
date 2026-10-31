@@ -6,7 +6,7 @@ P4-3：Agent 工具函数模块
 from langchain_core.tools import tool
 from langgraph.types import interrupt
 
-from cache import _kb_cache_get, _kb_cache_set
+from cache import kb_cache_get, kb_cache_set, kb_singleflight
 from config import GO_BUSINESS_API, RETRIEVER_TOP_K
 from db_pool import _pool_conn
 
@@ -66,8 +66,9 @@ async def search_kb(query: str) -> str:
     tid = _tenant_var.get() or ""
     thread_id = (_thread_var.get() if _thread_var is not None else "") or ""
 
-    # P2-2：先查缓存
-    cached = _kb_cache_get(tid, query)
+    # 需求10：检索缓存改为 Redis（多实例共享，失败自动降级为直接回源）
+    redis_client = getattr(_app.state, "redis_client", None)
+    cached = await kb_cache_get(redis_client, tid, query)
     if cached is not None:
         _logger.debug(f"[KB Cache HIT] tenant={tid}, query={query[:30]}")
         return cached
@@ -78,25 +79,32 @@ async def search_kb(query: str) -> str:
     store = _app.state.tenant_stores.get(tid)
     if store is None:
         return "知识库暂未就绪，请稍后再试。"
-    try:
-        pairs = await store.asimilarity_search_with_score(query, k=RETRIEVER_TOP_K)
-    except Exception as e:
-        # 检索期降级：embedding 调用失败（key 错误/服务不可用）不抛穿对话，如实告知
-        _logger.warning(f"[KB Degrade] tenant={tid} 检索失败，降级为纯LLM: {str(e)[:150]}")
-        return "知识库暂未就绪，请稍后再试。"
-    docs = [doc for doc, _score in pairs]
-    if not docs:
-        result = "未找到相关信息，建议转接人工客服。"
-    else:
-        result = "\n".join(f"- {doc.page_content}" for doc in docs)
 
-    # KB 闭环：检索结果落库（命中明细含真实分数 / 未命中查询）
-    await _record_kb_hits(tid, thread_id, query, pairs)
+    # 需求10：击穿防护——热点 key 失效瞬间，同实例并发请求只放一个回源
+    async with kb_singleflight(tid, query):
+        # 双检：等锁期间可能已被其他请求回源并写入缓存
+        cached = await kb_cache_get(redis_client, tid, query)
+        if cached is not None:
+            _logger.debug(f"[KB Cache HIT-after-lock] tenant={tid}, query={query[:30]}")
+            return cached
+        try:
+            pairs = await store.asimilarity_search_with_score(query, k=RETRIEVER_TOP_K)
+        except Exception as e:
+            # 检索期降级：embedding 调用失败（key 错误/服务不可用）不抛穿对话，如实告知
+            _logger.warning(f"[KB Degrade] tenant={tid} 检索失败，降级为纯LLM: {str(e)[:150]}")
+            return "知识库暂未就绪，请稍后再试。"
+        docs = [doc for doc, _score in pairs]
+        if not docs:
+            result = "未找到相关信息，建议转接人工客服。"
+        else:
+            result = "\n".join(f"- {doc.page_content}" for doc in docs)
 
-    # P2-2：写入缓存
-    _kb_cache_set(tid, query, result)
-    _logger.debug(f"[KB Cache MISS] tenant={tid}, query={query[:30]}, cached")
-    return result
+        # KB 闭环：检索结果落库（命中明细含真实分数 / 未命中查询）
+        await _record_kb_hits(tid, thread_id, query, pairs)
+
+        await kb_cache_set(redis_client, tid, query, result)
+        _logger.debug(f"[KB Cache MISS] tenant={tid}, query={query[:30]}, cached")
+        return result
 
 
 @tool

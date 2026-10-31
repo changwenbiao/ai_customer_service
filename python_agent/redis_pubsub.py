@@ -42,7 +42,7 @@ async def invalidate_listener(app, redis_client) -> None:
                         from agent_factory import invalidate_platform_prompt_agents
                         await invalidate_platform_prompt_agents(app)
                     else:
-                        clear_tenant_caches(app, tid, scope)
+                        await clear_tenant_caches(app, tid, scope)
                 except Exception as e:
                     logger.warning("处理失效广播失败: %s", e)
         except Exception as e:

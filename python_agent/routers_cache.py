@@ -19,7 +19,7 @@ logger = logging.getLogger("agent.routers_cache")
 router = APIRouter()
 
 
-def clear_tenant_caches(app, tenant_id: str | None, scope: str = "all") -> dict:
+async def clear_tenant_caches(app, tenant_id: str | None, scope: str = "all") -> dict:
     """按租户+scope 清除模型缓存（HTTP 入口与 Redis 广播订阅共用，保证两路行为一致）。
 
     - tenant_id 为空：清全部（平台默认配置变更，所有跟随平台的租户都受影响）
@@ -30,9 +30,10 @@ def clear_tenant_caches(app, tenant_id: str | None, scope: str = "all") -> dict:
     """
     clear_model_cache(tenant_id, scope)
     # 检索结果缓存（kb_cache）与向量模型绑定：向量配置变更时一并清空，避免旧答案残留
+    # 需求10：缓存已搬到 Redis（全实例共享），清一次即对所有实例生效
     try:
         from cache import clear_kb_cache
-        n_kb = clear_kb_cache()
+        n_kb = await clear_kb_cache(getattr(app.state, "redis_client", None))
         if n_kb:
             logger.info("✅ kb cache cleared: %d items", n_kb)
     except Exception as e:
@@ -70,7 +71,7 @@ def clear_tenant_caches(app, tenant_id: str | None, scope: str = "all") -> dict:
 async def cache_clear(request: Request, tenant_id: str | None = None, scope: str = "all"):
     """清空模型配置/实例/Agent/检索器缓存（由 Go 在配置保存成功后调用）。"""
     try:
-        return clear_tenant_caches(request.app, tenant_id, scope)
+        return await clear_tenant_caches(request.app, tenant_id, scope)
     except Exception as e:
         logger.warning("清空模型缓存失败: %s", e)
         return {"code": 500, "msg": "清空缓存失败: " + str(e)}
