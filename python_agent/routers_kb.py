@@ -309,10 +309,11 @@ async def kb_delete(doc_id: str, request: Request):
                 row = await cur.fetchone()
         file_name = row[0] if row else ""
         # 从该租户的 Qdrant 集合按 doc_id 元数据删除
+        # 注意：langchain_qdrant 写入时 metadata 嵌套在 payload.metadata 下，过滤 key 必须带前缀
         request.app.state.qdrant_client.delete(
             collection_name=collection_name(tenant_id),
             points_selector=qmodels.FilterSelector(filter=qmodels.Filter(must=[
-                qmodels.FieldCondition(key="doc_id", match=qmodels.MatchValue(value=doc_id))
+                qmodels.FieldCondition(key="metadata.doc_id", match=qmodels.MatchValue(value=doc_id))
             ])),
         )
         async with _pool_conn(request.app) as conn:
@@ -376,7 +377,7 @@ async def kb_reindex(doc_id: str, request: Request):
             request.app.state.qdrant_client.delete(
                 collection_name=collection_name(tenant_id),
                 points_selector=qmodels.FilterSelector(filter=qmodels.Filter(must=[
-                    qmodels.FieldCondition(key="doc_id", match=qmodels.MatchValue(value=doc_id))
+                    qmodels.FieldCondition(key="metadata.doc_id", match=qmodels.MatchValue(value=doc_id))
                 ])),
             )
         except Exception:
@@ -500,7 +501,7 @@ async def kb_batch(request: Request):
             request.app.state.qdrant_client.delete(
                 collection_name=collection_name(tenant_id),
                 points_selector=qmodels.FilterSelector(filter=qmodels.Filter(must=[
-                    qmodels.FieldCondition(key="doc_id", match=qmodels.MatchAny(any=valid))
+                    qmodels.FieldCondition(key="metadata.doc_id", match=qmodels.MatchAny(any=valid))
                 ])),
             )
         except Exception:

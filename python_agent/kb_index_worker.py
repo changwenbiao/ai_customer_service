@@ -50,11 +50,12 @@ async def _index_one(app, doc_id: str, tenant_id: str) -> None:
                     (doc_id, tenant_id))
 
         # 3) 幂等：先删旧向量（防重复消费/重索引残留）
+        # 注意：langchain_qdrant 写入时 metadata 嵌套在 payload.metadata 下，过滤 key 必须带前缀
         try:
             app.state.qdrant_client.delete(
                 collection_name=collection_name(tenant_id),
                 points_selector=qmodels.FilterSelector(filter=qmodels.Filter(must=[
-                    qmodels.FieldCondition(key="doc_id", match=qmodels.MatchValue(value=doc_id))
+                    qmodels.FieldCondition(key="metadata.doc_id", match=qmodels.MatchValue(value=doc_id))
                 ])),
             )
         except Exception:

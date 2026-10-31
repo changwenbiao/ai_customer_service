@@ -6,8 +6,8 @@ P4-3：知识库检索缓存模块
 import hashlib
 import time as _time
 
-# 缓存5分钟
-KB_CACHE_TTL = 300
+# 检索结果缓存有效期（秒）；调试用短 TTL，生产建议 300
+KB_CACHE_TTL = 10
 
 # key: "tenant_id:query_hash", value: (expire_time, result)
 _kb_cache = {}
