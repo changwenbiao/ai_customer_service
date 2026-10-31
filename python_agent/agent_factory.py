@@ -431,6 +431,11 @@ async def get_tenant_agent(app, tenant_id: str):
     # 配置签名懒检查：Redis 广播丢失时的最终一致兜底（TTL 内跳过，失败不阻断）
     sig_version = await _check_config_version(app, tenant_id)
     if tenant_id in app.state.tenant_agents:
+        # 缓存命中也要兜底：KB 变更（删除/重索引）会 pop 掉 retriever，
+        # 首次构建时向量不可用也会导致 retriever 缺失，此处懒重建
+        if tenant_id not in app.state.tenant_retrievers:
+            await ensure_tenant_vector(app, tenant_id)
+            get_tenant_retriever(app, tenant_id)
         return app.state.tenant_agents[tenant_id]
     await ensure_tenant_vector(app, tenant_id)
     get_tenant_retriever(app, tenant_id)
