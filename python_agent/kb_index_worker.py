@@ -89,7 +89,9 @@ async def _index_one(app, doc_id: str, tenant_id: str) -> None:
                     "UPDATE kb_documents SET chunk_count = %s, status = 1, error_msg = NULL, updated_at = CURRENT_TIMESTAMP "
                     "WHERE doc_id = %s AND tenant_id = %s",
                     (len(texts), doc_id, tenant_id))
-        app.state.tenant_retrievers.pop(tenant_id, None)
+        # tenant_retrievers 缓存已停用（retriever 链路废弃：search_kb 直调 store 拿相似度分数，
+        # 详见 agent_factory.get_tenant_retriever 注释），索引完成无需再失效 retriever
+        # app.state.tenant_retrievers.pop(tenant_id, None)
         logger.info("KB worker indexed tenant=%s doc_id=%s chunks=%d", tenant_id, doc_id, len(texts))
     except Exception as e:
         logger.exception("KB worker index error doc_id=%s", doc_id)

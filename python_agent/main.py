@@ -120,7 +120,9 @@ async def lifespan(app: FastAPI):
     app.state.vec_dim = 0
     app.state.text_splitter = None
     app.state.tenant_stores = {}
-    app.state.tenant_retrievers = {}
+    # tenant_retrievers 缓存已停用（retriever 链路废弃：search_kb 直调 store 拿相似度分数，
+    # 详见 agent_factory.get_tenant_retriever 注释）
+    # app.state.tenant_retrievers = {}
     app.state.tenant_agents = {}
     app.state.agent = None
     app.state.model = None
@@ -552,7 +554,8 @@ async def tenant_cleanup(tenant_id: str, request: Request):
             logger.warning("delete qdrant collection %s failed: %s", col, qe)
         # 清理内存缓存
         request.app.state.tenant_stores.pop(tenant_id, None)
-        request.app.state.tenant_retrievers.pop(tenant_id, None)
+        # tenant_retrievers 已停用（retriever 链路废弃，见 agent_factory.get_tenant_retriever 注释）
+        # request.app.state.tenant_retrievers.pop(tenant_id, None)
         request.app.state.tenant_agents.pop(tenant_id, None)
         logger.info("tenant %s cleanup done: %s", tenant_id, result)
         return {"code": 0, "data": result}

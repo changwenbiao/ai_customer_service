@@ -7,7 +7,7 @@ from langchain_core.tools import tool
 from langgraph.types import interrupt
 
 from cache import _kb_cache_get, _kb_cache_set
-from config import GO_BUSINESS_API
+from config import GO_BUSINESS_API, RETRIEVER_TOP_K
 from db_pool import _pool_conn
 
 # 模块级 app 引用，由 main.py 注入
@@ -28,17 +28,18 @@ def set_app(app, logger, tenant_var, pending_ticket_var=None, thread_var=None):
     _thread_var = thread_var
 
 
-async def _record_kb_hits(tid: str, thread_id: str, query: str, docs: list) -> None:
+async def _record_kb_hits(tid: str, thread_id: str, query: str, pairs: list) -> None:
     """KB 闭环：检索结果落库（异步旁路，失败不影响对话）。
-    docs 为空 → 插入一条未命中记录（doc_id 为空）。
-    docs 非空 → 每个命中文档插一条记录（doc_id/doc_title/score）。
+    pairs 为 store.asimilarity_search_with_score() 返回的 (Document, score) 元组列表：
+    - pairs 为空 → 插入一条未命中记录（doc_id 为空，score=0）
+    - 非空 → 每个命中文档一条记录，score 为真实相似度（COSINE：越大越相似）
     """
     try:
-        if docs:
+        if pairs:
             rows = [
-                (tid, thread_id, d.metadata.get("doc_id", ""), d.metadata.get("title", ""), query,
-                 float(getattr(d, "metadata", {}).get("score", 0) or 0))
-                for d in docs
+                (tid, thread_id, doc.metadata.get("doc_id", ""), doc.metadata.get("title", ""), query,
+                 float(score))
+                for doc, score in pairs
             ]
         else:
             rows = [(tid, thread_id, "", "", query, 0.0)]
@@ -71,22 +72,26 @@ async def search_kb(query: str) -> str:
         _logger.debug(f"[KB Cache HIT] tenant={tid}, query={query[:30]}")
         return cached
 
-    retriever = _app.state.tenant_retrievers.get(tid)
-    if retriever is None:
+    # 需求3改造：绕过 retriever 直调 store，拿真实相似度分数落库 kb_hits。
+    # retriever.ainvoke() 接口契约固定返回 list[Document]，分数会被丢弃
+    # （langchain_core VectorStoreRetriever 源码为证），因此 retriever 链路已停用。
+    store = _app.state.tenant_stores.get(tid)
+    if store is None:
         return "知识库暂未就绪，请稍后再试。"
     try:
-        docs = await retriever.ainvoke(query)
+        pairs = await store.asimilarity_search_with_score(query, k=RETRIEVER_TOP_K)
     except Exception as e:
         # 检索期降级：embedding 调用失败（key 错误/服务不可用）不抛穿对话，如实告知
         _logger.warning(f"[KB Degrade] tenant={tid} 检索失败，降级为纯LLM: {str(e)[:150]}")
         return "知识库暂未就绪，请稍后再试。"
+    docs = [doc for doc, _score in pairs]
     if not docs:
         result = "未找到相关信息，建议转接人工客服。"
     else:
         result = "\n".join(f"- {doc.page_content}" for doc in docs)
 
-    # KB 闭环：检索结果落库（命中明细 / 未命中查询）
-    await _record_kb_hits(tid, thread_id, query, docs)
+    # KB 闭环：检索结果落库（命中明细含真实分数 / 未命中查询）
+    await _record_kb_hits(tid, thread_id, query, pairs)
 
     # P2-2：写入缓存
     _kb_cache_set(tid, query, result)

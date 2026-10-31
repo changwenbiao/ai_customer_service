@@ -38,26 +38,29 @@ def clear_tenant_caches(app, tenant_id: str | None, scope: str = "all") -> dict:
     except Exception as e:
         logger.warning("清 kb_cache 失败: %s", e)
     agents = getattr(app.state, "tenant_agents", {})
-    retr = getattr(app.state, "tenant_retrievers", {})
+    # tenant_retrievers 缓存已停用（retriever 链路废弃：retriever 会丢弃相似度分数，
+    # search_kb 改为直调 store；详见 agent_factory.get_tenant_retriever 注释），不再清理
+    # retr = getattr(app.state, "tenant_retrievers", {})
     if tenant_id:
         n_agents = n_retr = 0
         if scope in ("chat", "all") and tenant_id in agents:
             agents.pop(tenant_id, None)
             n_agents = 1
         if scope in ("embedding", "all"):
-            if tenant_id in retr:
-                retr.pop(tenant_id, None)
-                n_retr = 1
+            # retriever 缓存已停用，无需清理（见上方注释）
+            # if tenant_id in retr:
+            #     retr.pop(tenant_id, None)
+            #     n_retr = 1
             if tenant_id in agents:
                 agents.pop(tenant_id, None)
-                n_agents = 1  # Agent 持有旧 retriever 引用，向量模型变更必须重建
+                n_agents = 1  # Agent 间接持有旧 embedding 引用（经 store），向量模型变更必须重建
         logger.info("✅ caches cleared: config, agents=%d, retrievers=%d (tenant=%s, scope=%s)",
                     n_agents, n_retr, tenant_id, scope)
     else:
         n_agents = len(agents)
-        n_retr = len(retr)
+        n_retr = 0  # retriever 缓存已停用（见上方注释）
         agents.clear()
-        retr.clear()
+        # retr.clear()  # 已停用，见上方注释
         logger.info("✅ caches cleared: config, agents=%d, retrievers=%d (all tenants)",
                     n_agents, n_retr)
     return {"code": 0, "msg": "cache cleared"}

@@ -108,19 +108,29 @@ async def ensure_tenant_vector(app, tenant_id: str) -> QdrantVectorStore | None:
         return None
 
 
-def get_tenant_retriever(app, tenant_id: str):
-    """获取租户 retriever（缓存；未就绪返回 None）"""
-    if tenant_id in app.state.tenant_retrievers:
-        return app.state.tenant_retrievers[tenant_id]
-    store = app.state.tenant_stores.get(tenant_id)
-    if store is None:
-        return None
-    retriever = store.as_retriever(
-        search_type="similarity",
-        search_kwargs={"k": RETRIEVER_TOP_K}
-    )
-    app.state.tenant_retrievers[tenant_id] = retriever
-    return retriever
+# === get_tenant_retriever 已停用（2026-10-31，需求3改造）===
+# 停用原因：search_kb 需要把真实相似度分数落库 kb_hits，而 Retriever 接口契约
+# 固定返回 list[Document]，分数会被丢弃——langchain_core/vectorstores/base.py 的
+# VectorStoreRetriever._aget_relevant_documents 里即使 similarity_score_threshold
+# 模式内部拿到了分数，也只会 [doc for doc, _ in pairs] 把分数扔掉。
+# search_kb 已改为直调 store.asimilarity_search_with_score()（见 tools.py）。
+# 注意：各处 tenant_retrievers.pop()（KB 变更/索引完成/缓存清理）仍然保留未注释，
+# 它们对空 dict 是无害 no-op，且若将来恢复本函数，这些失效逻辑是必需的。
+# 如需恢复：取消下方注释 + 恢复 get_tenant_agent 中的两处调用。
+#
+# def get_tenant_retriever(app, tenant_id: str):
+#     """获取租户 retriever（缓存；未就绪返回 None）"""
+#     if tenant_id in app.state.tenant_retrievers:
+#         return app.state.tenant_retrievers[tenant_id]
+#     store = app.state.tenant_stores.get(tenant_id)
+#     if store is None:
+#         return None
+#     retriever = store.as_retriever(
+#         search_type="similarity",
+#         search_kwargs={"k": RETRIEVER_TOP_K}
+#     )
+#     app.state.tenant_retrievers[tenant_id] = retriever
+#     return retriever
 
 
 # ====================== 租户模型配置（BYOK） ======================
@@ -431,14 +441,17 @@ async def get_tenant_agent(app, tenant_id: str):
     # 配置签名懒检查：Redis 广播丢失时的最终一致兜底（TTL 内跳过，失败不阻断）
     sig_version = await _check_config_version(app, tenant_id)
     if tenant_id in app.state.tenant_agents:
-        # 缓存命中也要兜底：KB 变更（删除/重索引）会 pop 掉 retriever，
-        # 首次构建时向量不可用也会导致 retriever 缺失，此处懒重建
-        if tenant_id not in app.state.tenant_retrievers:
+        # 兜底：首次构建时向量不可用会导致 store 缺失，此处懒重建
+        # （原兜底针对 retriever；retriever 链路停用后改为兜底 store，
+        #   search_kb 直接消费 tenant_stores）
+        if tenant_id not in app.state.tenant_stores:
             await ensure_tenant_vector(app, tenant_id)
-            get_tenant_retriever(app, tenant_id)
+        # get_tenant_retriever(app, tenant_id)  # 已停用：retriever 会丢弃相似度分数，
+        #                                         # search_kb 改为直调 store（见函数注释）
         return app.state.tenant_agents[tenant_id]
     await ensure_tenant_vector(app, tenant_id)
-    get_tenant_retriever(app, tenant_id)
+    # get_tenant_retriever(app, tenant_id)  # 已停用：同上，retriever 会丢弃相似度分数，
+    #                                       # search_kb 改为直调 store（见函数注释）
     async with app.state.db_pool.connection() as conn:
         prompt = await load_active_prompt(conn, tenant_id)
     # 使用租户专属模型（BYOK：有自定义配置则用租户的，否则用平台默认）
@@ -510,7 +523,8 @@ async def _check_config_version(app, tenant_id: str) -> str | None:
                     tenant_id, _agent_sigs.get(tenant_id, "(none)"), remote)
         clear_model_cache(tenant_id, "all")
         app.state.tenant_agents.pop(tenant_id, None)
-        app.state.tenant_retrievers.pop(tenant_id, None)
+        # tenant_retrievers 已停用（retriever 链路废弃，见 get_tenant_retriever 注释）
+        # app.state.tenant_retrievers.pop(tenant_id, None)
     return remote
 
 

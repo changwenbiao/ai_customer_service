@@ -322,8 +322,9 @@ async def kb_delete(doc_id: str, request: Request):
                     "DELETE FROM kb_documents WHERE doc_id = %s AND tenant_id = %s", (doc_id, tenant_id))
         # 删除共享卷原文件
         delete_kb_file(tenant_id, doc_id, file_name)
-        # 知识库变更后失效该租户 retriever 缓存
-        request.app.state.tenant_retrievers.pop(tenant_id, None)
+        # tenant_retrievers 缓存已停用（retriever 链路废弃：search_kb 直调 store 拿相似度分数，
+        # 详见 agent_factory.get_tenant_retriever 注释），无需再失效
+        # request.app.state.tenant_retrievers.pop(tenant_id, None)
         logger.info("KB delete tenant=%s doc_id=%s", tenant_id, doc_id)
         return {"code": 0, "data": {"doc_id": doc_id}}
     except Exception as e:
@@ -382,7 +383,8 @@ async def kb_reindex(doc_id: str, request: Request):
             )
         except Exception:
             pass
-        request.app.state.tenant_retrievers.pop(tenant_id, None)
+        # tenant_retrievers 已停用（retriever 链路废弃，见 agent_factory.get_tenant_retriever 注释）
+        # request.app.state.tenant_retrievers.pop(tenant_id, None)
 
         if not await enqueue_index(request.app, doc_id, tenant_id):
             return {"code": 500, "msg": "索引队列不可用，请稍后重试"}
@@ -452,8 +454,8 @@ async def kb_index(request: Request):
                     await cur.execute(
                         "UPDATE kb_documents SET status = 2, error_msg = %s, updated_at = CURRENT_TIMESTAMP "
                         "WHERE doc_id = %s", ("Redis 索引队列不可用", d))
-    # 知识库变更后失效该租户 retriever 缓存
-    request.app.state.tenant_retrievers.pop(tenant_id, None)
+    # tenant_retrievers 缓存已停用（retriever 链路废弃，见 agent_factory.get_tenant_retriever 注释）
+    # request.app.state.tenant_retrievers.pop(tenant_id, None)
     logger.info("KB index queued tenant=%s total=%d queued=%d failed=%d", tenant_id, len(targets), queued, failed)
     return {"code": 0, "msg": f"已提交 {queued} 个文档索引入队", "data": {"queued": queued, "failed": failed, "skipped": len(doc_ids) - len(targets)}}
 
@@ -517,7 +519,8 @@ async def kb_batch(request: Request):
         # 删除共享卷原文件（尽力而为，与单条删除 kb_delete 行为一致）
         for d in valid:
             delete_kb_file(tenant_id, d, file_names.get(d, ""))
-        request.app.state.tenant_retrievers.pop(tenant_id, None)
+        # tenant_retrievers 已停用（retriever 链路废弃，见 agent_factory.get_tenant_retriever 注释）
+        # request.app.state.tenant_retrievers.pop(tenant_id, None)
         done = len(valid)
     elif action == "category":
         async with _pool_conn(request.app) as conn:
