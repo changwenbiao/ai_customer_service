@@ -193,6 +193,10 @@ func SetupRoutes(r *gin.Engine) {
 			biz.GET("/kb/categories", middleware.RequirePerm(permission.KnowledgeView), func(c *gin.Context) {
 				handler.ProxyToAgent(c, http.MethodGet, "/agent/kb/categories")
 			})
+			// 知识库检索测试（不走大模型）：只读权限，供运营验证召回效果
+			biz.POST("/kb/test-query", middleware.RequirePerm(permission.KnowledgeView), func(c *gin.Context) {
+				handler.ProxyToAgent(c, http.MethodPost, "/agent/kb/test-query")
+			})
 			biz.POST("/kb/batch", middleware.RequirePerm(permission.KnowledgeEdit), func(c *gin.Context) {
 				handler.ProxyToAgent(c, http.MethodPost, "/agent/kb/batch")
 			})

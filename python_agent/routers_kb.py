@@ -19,7 +19,7 @@ from cache import clear_kb_cache
 from db_ops import (check_kb_quota, collection_name, get_platform_setting,
                     set_platform_setting, tenant_from_request)
 from db_pool import _pool_conn
-from config import INTERNAL_API_TOKEN
+from config import INTERNAL_API_TOKEN, RETRIEVER_TOP_K
 from kb_parser import extract_text
 
 logger = logging.getLogger("agent.routers_kb")
@@ -414,6 +414,47 @@ async def kb_categories(request: Request):
                 (tenant_id,))
             rows = await cur.fetchall()
     return {"code": 0, "data": [{"category": r[0] or "默认", "count": r[1]} for r in rows]}
+
+
+@router.post("/agent/kb/test-query")
+async def kb_test_query(request: Request):
+    """知识库检索测试（不走大模型）：返回 Top-K 分片与真实相似度分数。
+
+    与 search_kb 的区别：跳过检索缓存、不写 kb_hits、不经过 Agent，
+    专供运营在上传/索引后验证「这个问题能不能被召回」。
+    注意：首次调用会触发 ensure_tenant_vector 懒建集合（特性，便于无聊天时先验证）。
+    """
+    tenant_id = tenant_from_request(request)
+    try:
+        body = await request.json()
+    except Exception:
+        return {"code": 400, "msg": "请求体需为 JSON"}
+    query = (body.get("query") or "").strip()
+    if not query:
+        return {"code": 400, "msg": "query 不能为空"}
+    try:
+        k = int(body.get("k") or RETRIEVER_TOP_K)
+    except (TypeError, ValueError):
+        k = RETRIEVER_TOP_K
+    k = max(1, min(k, 10))  # 上限保护：避免一次拉过多分片
+
+    store = await ensure_tenant_vector(request.app, tenant_id)
+    if store is None:
+        return {"code": 503, "msg": "向量模型/向量库不可用，请检查租户模型配置"}
+    try:
+        pairs = await store.asimilarity_search_with_score(query, k=k)
+    except Exception as e:
+        logger.warning("KB test-query failed tenant=%s: %s", tenant_id, str(e)[:200])
+        return {"code": 500, "msg": "检索失败：" + str(e)[:200]}
+
+    items = [{
+        "doc_id": doc.metadata.get("doc_id", ""),
+        "title": doc.metadata.get("title", ""),
+        "score": float(score),
+        "content": doc.page_content,
+    } for doc, score in pairs]
+    logger.info("KB test-query tenant=%s k=%d hits=%d", tenant_id, k, len(items))
+    return {"code": 0, "data": {"query": query, "k": k, "count": len(items), "items": items}}
 
 
 @router.post("/agent/kb/index")

@@ -18,6 +18,7 @@
       <div style="display:flex;gap:8px;">
         <button v-if="progressActive && !showIndexProgress" class="btn btn-sm" @click="showIndexProgress = true">查看索引进度</button>
         <button v-if="session.is_platform_admin" class="btn btn-sm" @click="showSetting = true">上传大小设置</button>
+        <button class="btn btn-sm" @click="openTestQuery">测试问答</button>
         <button class="btn btn-primary btn-sm" v-perm="'knowledge:add'" @click="openUpload">上传文档</button>
       </div>
     </div>
@@ -124,6 +125,46 @@
           <input v-model.number="maxFileMb" class="input" type="number" min="1" max="100" />
         </label>
         <button class="btn btn-primary btn-sm" @click="saveSetting">保存</button>
+      </div>
+    </Modal>
+
+    <!-- 检索测试（不走大模型，验证召回效果） -->
+    <Modal :visible="showTest" title="知识库检索测试" @close="showTest = false">
+      <div class="form">
+        <div style="font-size:12px;color:var(--c-text-2);">
+          直接调用向量检索，不经过大模型。用于上传/索引后验证「这个问题能不能被召回」。
+        </div>
+        <label class="field">
+          <span class="f-label">问题</span>
+          <textarea v-model="testForm.query" class="textarea" style="min-height:80px;"
+                    placeholder="例如：怎么退款？" @keyup.ctrl.enter="runTestQuery"></textarea>
+        </label>
+        <label class="field">
+          <span class="f-label">返回条数 Top-K</span>
+          <select v-model.number="testForm.k" class="select" style="width:120px;">
+            <option :value="3">3</option>
+            <option :value="5">5</option>
+            <option :value="10">10</option>
+          </select>
+        </label>
+        <button class="btn btn-primary btn-sm" :disabled="testRunning" @click="runTestQuery">
+          {{ testRunning ? '检索中...' : '检索' }}
+        </button>
+
+        <div v-if="testResult" style="font-size:12px;color:var(--c-text-2);">
+          命中 {{ testResult.count }} 条（最多返回 {{ testResult.k }} 条）
+        </div>
+        <div v-if="testResult && !testResult.count" class="hit-zero" style="padding:8px 10px;">
+          未命中：向量库里找不到相关内容，请确认文档已索引（status=已索引）。
+        </div>
+        <div v-for="(it, i) in (testResult ? testResult.items : [])" :key="i" class="test-hit">
+          <div class="test-hit-head">
+            <b>#{{ i + 1 }}</b>
+            <span class="badge">{{ it.title || it.doc_id || '未知文档' }}</span>
+            <span class="score-tag" :style="scoreStyle(it.score)">score {{ Number(it.score || 0).toFixed(3) }}</span>
+          </div>
+          <div class="test-hit-body">{{ it.content }}</div>
+        </div>
       </div>
     </Modal>
 
@@ -295,6 +336,32 @@ function download(row) {
     return
   }
   toast('原文件缺失，请重新上传', 'warning')
+}
+
+// ============ 检索测试（不走大模型） ============
+const showTest = ref(false)
+const testRunning = ref(false)
+const testForm = reactive({ query: '', k: 3 })
+const testResult = ref(null)   // { query, k, count, items[] }
+function openTestQuery() { showTest.value = true }
+// COSINE 相似度：越大越相似。配色仅作直观提示（阈值可按实际分布调整）
+const scoreStyle = s => {
+  const v = Number(s || 0)
+  const [bg, fg] = v >= 0.75 ? ['rgba(47,168,79,.15)', '#2fa84f']
+    : v >= 0.5 ? ['rgba(217,119,6,.15)', '#d97706']
+    : ['rgba(229,72,77,.15)', '#e5484d']
+  return { background: bg, color: fg }
+}
+async function runTestQuery() {
+  const q = (testForm.query || '').trim()
+  if (!q) return toast('请输入问题', 'warning')
+  testRunning.value = true
+  try {
+    const r = await api('/api/admin/kb/test-query', { method: 'POST', body: { query: q, k: testForm.k } })
+    if (r.code !== 0) { testResult.value = null; return toast(r.msg || '检索失败', 'error') }
+    testResult.value = r.data || { items: [], count: 0, k: testForm.k }
+  } catch (e) {
+  } finally { testRunning.value = false }
 }
 
 // ============ 上传大小限制（平台管理员） ============
@@ -508,4 +575,8 @@ async function uploadFile() {
 .err-msg { font-size: 11px; color: #e5484d; margin-top: 2px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hit-tag { display: inline-block; margin-left: 8px; padding: 1px 6px; border-radius: 4px; font-size: 11px; background: rgba(37, 99, 235, .12); color: #2563eb; }
 .hit-zero { background: rgba(139, 148, 158, .14); color: #8f959e; }
+.test-hit { border: 1px solid var(--c-border); border-radius: var(--radius); padding: 8px 10px; background: var(--c-bg); }
+.test-hit-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.test-hit-body { font-size: 12px; color: var(--c-text-2); white-space: pre-wrap; max-height: 140px; overflow: auto; }
+.score-tag { margin-left: auto; padding: 1px 6px; border-radius: 4px; font-size: 11px; }
 </style>
