@@ -492,8 +492,16 @@ async def kb_batch(request: Request):
 
     done, failed = 0, 0
     if action == "delete":
+        # 先循环查询各文档的 file_name（删共享卷原文件用），再删 DB 记录
+        file_names: dict = {}
         async with _pool_conn(request.app) as conn:
             async with conn.cursor() as cur:
+                for d in valid:
+                    await cur.execute(
+                        "SELECT file_name FROM kb_documents WHERE doc_id = %s AND tenant_id = %s",
+                        (d, tenant_id))
+                    row = await cur.fetchone()
+                    file_names[d] = row[0] if row else ""
                 await cur.execute(
                     "DELETE FROM kb_documents WHERE tenant_id = %s AND doc_id = ANY(%s)",
                     (tenant_id, valid))
@@ -506,6 +514,9 @@ async def kb_batch(request: Request):
             )
         except Exception:
             pass
+        # 删除共享卷原文件（尽力而为，与单条删除 kb_delete 行为一致）
+        for d in valid:
+            delete_kb_file(tenant_id, d, file_names.get(d, ""))
         request.app.state.tenant_retrievers.pop(tenant_id, None)
         done = len(valid)
     elif action == "category":
