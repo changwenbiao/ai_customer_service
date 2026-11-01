@@ -102,6 +102,7 @@ CREATE TABLE IF NOT EXISTS `tickets` (
   `handler_uid` bigint(20) unsigned DEFAULT 0 COMMENT '接管客服子账号ID（0=app_key管理员）',
   `handler_name` varchar(64) DEFAULT NULL COMMENT '接管客服名（冗余快照）',
   `closed_at` datetime(3) DEFAULT NULL COMMENT '关闭/取消时刻',
+  `sla_reminded_at` datetime(3) DEFAULT NULL COMMENT 'SLA超时提醒时刻（NULL=未提醒）',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uni_tickets_ticket_no` (`ticket_no`),
   KEY `idx_tickets_tenant_id` (`tenant_id`),

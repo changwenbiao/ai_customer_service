@@ -222,6 +222,10 @@ function scheduleReconnect() {
 function handleWsMsg(raw) {
   try {
     const msg = JSON.parse(raw)
+    // SLA 超时提醒：全局弹提示，租户管理员/客服在任何页面都能看到
+    if (msg && msg.type === 'sla_alert') {
+      toast(`工单 ${msg.ticket_no || ''} 已等待 ${msg.wait_min || 0} 分钟未响应`, 'warning')
+    }
     window.dispatchEvent(new CustomEvent('cs-ws-msg', { detail: msg }))
   } catch (e) { /* 忽略非 JSON */ }
 }

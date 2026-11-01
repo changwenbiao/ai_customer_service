@@ -28,8 +28,9 @@ type Ticket struct {
 	TenantID    string               `gorm:"column:tenant_id;size:64;index" json:"tenant_id"`
 	HandlerUID  uint64               `gorm:"column:handler_uid;default:0" json:"handler_uid"`   // 接管客服子账号ID（0=app_key管理员）
 	HandlerName string               `gorm:"column:handler_name;size:64" json:"handler_name"`   // 接管客服名（冗余快照，改名不影响历史工单）
-	ClosedAt    *time.Time           `gorm:"column:closed_at" json:"closed_at,omitempty"`       // 关闭/取消时刻：工单详情消息窗口上界
-	CreatedAt   time.Time      `gorm:"column:created_at" json:"created_at"`
+	ClosedAt      *time.Time           `gorm:"column:closed_at" json:"closed_at,omitempty"`             // 关闭/取消时刻：工单详情消息窗口上界
+	SlaRemindedAt *time.Time           `gorm:"column:sla_reminded_at" json:"sla_reminded_at,omitempty"` // SLA超时提醒时刻（NULL=未提醒）
+	CreatedAt     time.Time      `gorm:"column:created_at" json:"created_at"`
 	UnreadCount int64          `gorm:"-" json:"unread_count"` // 未读消息数，不映射到数据库
 	DeletedAt   soft_delete.DeletedAt `gorm:"column:deleted_at;index" json:"-"` // 软删除
 }

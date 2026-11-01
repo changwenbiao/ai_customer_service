@@ -13,6 +13,7 @@ import (
 	"customer_service/internal/pkg/telemetry"
 	"customer_service/internal/repository"
 	"customer_service/internal/router"
+	"customer_service/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -93,6 +94,9 @@ func main() {
 			time.Sleep(24 * time.Hour)
 		}
 	}()
+
+	// 需求5：工单 SLA 超时提醒扫描（pending 超过阈值未接管 → 推用户 + 广播客服）
+	service.StartSlaMonitor()
 
 	r := gin.Default()
 

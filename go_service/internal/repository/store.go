@@ -303,3 +303,33 @@ func ListTicketLogs(ticketID uint64) ([]model.TicketLog, error) {
 	err := config.DB.Where("ticket_id = ?", ticketID).Order("id ASC").Find(&logs).Error
 	return logs, err
 }
+
+// ====================== SLA 超时提醒 ======================
+
+// ListSlaTimeoutTickets 扫描超时未提醒的 pending 工单。
+// 命中索引 idx_tickets_tenant_status_time (tenant_id, status, created_at)。
+// 条件：status=0（待处理）AND sla_reminded_at IS NULL AND created_at 早于 timeout 前。
+// 注：soft_delete 由 GORM 自动追加 deleted_at IS NULL，无需手动写。
+func ListSlaTimeoutTickets(timeout time.Duration) ([]model.Ticket, error) {
+	var tickets []model.Ticket
+	cutoff := time.Now().Add(-timeout)
+	err := config.DB.
+		Where("status = ? AND sla_reminded_at IS NULL AND created_at < ?",
+			model.TicketStatusPending, cutoff).
+		Order("created_at ASC").
+		Find(&tickets).Error
+	return tickets, err
+}
+
+// MarkSlaReminded 标记工单已提醒（带条件更新防并发重复）。
+// 返回 true 表示本次标记成功（由我发消息）；false 表示已被其他扫描者标记过（跳过）。
+// 利用 RowsAffected 实现"只有一个扫描者能标记成功"的分布式幂等。
+func MarkSlaReminded(ticketID uint64) (bool, error) {
+	res := config.DB.Model(&model.Ticket{}).
+		Where("id = ? AND sla_reminded_at IS NULL", ticketID).
+		Update("sla_reminded_at", time.Now())
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected > 0, nil
+}

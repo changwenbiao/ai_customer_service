@@ -46,16 +46,26 @@
           <span v-else-if="session.user_id" class="text-3" style="font-size:12px;color:#999;">（未接入在线状态）</span>
         </div>
         <div class="tk-items">
+          <!-- SLA 超时未响应：常驻提醒条，点击可直接打开工单 -->
+          <div v-if="slaAlerts.length" class="sla-banner">
+            <span class="sla-banner-title">超时未响应 {{ slaAlerts.length }} 单</span>
+            <span v-for="a in slaAlerts" :key="a.ticket_id" class="sla-chip" @click="openSla(a)">
+              {{ a.ticket_no }} · 等待 {{ a.wait_min }} 分钟
+            </span>
+            <span style="flex:1;"></span>
+            <button class="btn btn-sm" @click="slaAlerts = []">清除</button>
+          </div>
           <div v-if="!list.length" class="empty">暂无工单</div>
           <div
             v-for="t in list" :key="t.id" class="tk-item"
-            :class="{ active: current && current.id === t.id }"
+            :class="{ active: current && current.id === t.id, 'tk-item-sla': isSlaOverdue(t) }"
             @click="open(t)"
           >
             <div class="tk-item-row">
               <b class="mono">{{ t.ticket_no }}</b>
               <span v-if="t.unread_count > 0" class="badge badge-red" style="border-radius:10px;padding:0 6px;">{{ t.unread_count }}</span>
               <span class="badge" :class="statusClass(t.status)">{{ statusText(t.status) }}</span>
+              <span v-if="isSlaOverdue(t)" class="badge badge-red">超时未响应</span>
             </div>
             <div class="tk-item-row text-2 mono" style="font-size:12px;">
               <span class="badge" :style="priorityStyle(t.priority)">{{ priorityText(t.priority) }}</span>
@@ -194,11 +204,14 @@ const showLogs = ref(false)
 const msgBox = ref(null)
 const uploading = ref(false)
 const previewImgUrl = ref('')
+const slaAlerts = ref([])   // SLA 超时提醒：{ticket_id, ticket_no, wait_min}
 
 const STATUS = { 0: ['待处理', 'badge-orange'], 1: ['接管中', 'badge-blue'], 2: ['已取消', 'badge-gray'], 3: ['已关闭', 'badge-green'] }
 const PRIORITY = { 0: ['低', '#8c8c8c'], 1: ['中', '#2563eb'], 2: ['高', '#d97706'], 3: ['紧急', '#e5484d'] }
 const statusText = s => (STATUS[s] || [s])[0]
 const statusClass = s => (STATUS[s] || [s, 'badge-gray'])[1]
+// SLA 超时未响应：待处理且已被提醒过
+const isSlaOverdue = t => !!t && t.status === 0 && !!t.sla_reminded_at
 const priorityText = p => (PRIORITY[p] || ['中', '#2563eb'])[0]
 const priorityStyle = p => ({ background: (PRIORITY[p] || [null, '#2563eb'])[1], color: '#fff', borderRadius: 4, padding: '1px 5px', fontSize: 11 })
 const roleText = r => ({ user: '用户', ai: 'AI', human: '人工', system: '系统' }[r] || r)
@@ -295,7 +308,25 @@ async function load() {
     if (r.code !== 0) return
     list.value = r.data.list || []
     total.value = r.data.total || 0
+    // 用列表里的超时工单重建常驻提醒（保证刷新页面后仍能看到）
+    if (status.value === '-1' || status.value === '0') {
+      slaAlerts.value = list.value.filter(isSlaOverdue).map(t => ({
+        ticket_id: t.id,
+        ticket_no: t.ticket_no,
+        wait_min: Math.max(0, Math.floor((Date.now() - new Date(t.created_at).getTime()) / 60000)),
+      }))
+    }
   } catch (e) {}
+}
+
+// 点击提醒条：打开对应工单（不在当前列表则先刷新）
+async function openSla(a) {
+  let t = list.value.find(x => x.id === a.ticket_id)
+  if (!t) {
+    await load()
+    t = list.value.find(x => x.id === a.ticket_id)
+  }
+  if (t) open(t)
 }
 
 function resetFilters() {
@@ -468,6 +499,16 @@ function onWsMsg(e) {
     load()
     loadAgentStatus()
     if (hit) refreshCurrent()
+  } else if (msg.type === 'sla_alert') {
+    // SLA 超时提醒：加入常驻提醒条 + 刷新列表（全局 toast 已由 App.vue 处理）
+    if (msg.ticket_id && !slaAlerts.value.some(a => a.ticket_id === msg.ticket_id)) {
+      slaAlerts.value.push({
+        ticket_id: msg.ticket_id,
+        ticket_no: msg.ticket_no || '',
+        wait_min: msg.wait_min || 0,
+      })
+    }
+    load()
   }
 }
 
@@ -502,6 +543,12 @@ onUnmounted(() => {
 .tk-item { border: 1px solid var(--c-border); border-radius: var(--radius); padding: 10px 12px; cursor: pointer; transition: all .12s; }
 .tk-item:hover { border-color: var(--c-primary); }
 .tk-item.active { border-color: var(--c-primary); background: var(--c-primary-weak); }
+/* SLA 超时未响应：红边高亮 */
+.tk-item-sla { border-color: #e5484d; background: rgba(229,72,77,.06); }
+.sla-banner { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 10px; margin-bottom: 8px; border: 1px solid #e5484d; border-radius: var(--radius); background: rgba(229,72,77,.08); }
+.sla-banner-title { font-size: 12px; font-weight: 600; color: #e5484d; }
+.sla-chip { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #e5484d; color: #fff; cursor: pointer; }
+.sla-chip:hover { opacity: .85; }
 .tk-item-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
 .tk-detail { padding: 16px; display: flex; flex-direction: column; min-height: calc(100vh - 160px); }
 .tk-detail-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
