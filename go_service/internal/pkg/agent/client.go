@@ -35,6 +35,11 @@ type ResumeReq struct {
 
 var httpClient = &http.Client{Timeout: 60 * time.Second}
 
+// streamHTTPClient 流式对话专用：agent 侧 search_kb 含 CPU rerank（5 候选约 15~20s），
+// 而 http.Client.Timeout 覆盖「发起请求 → 读完整个响应体」全过程，60s 不够
+// （rerank + LLM 生成叠加会顶穿，前端表现为收不到消息）。
+var streamHTTPClient = &http.Client{Timeout: 180 * time.Second}
+
 // adminHTTPClient 用于 Prompt/知识库/会话清理等管理操作（可能耗时较长）
 var adminHTTPClient = &http.Client{Timeout: 120 * time.Second}
 
@@ -145,7 +150,7 @@ func CallAgentChatStream(ctx context.Context, threadID, msg, traceId string, has
 	req.Header.Set("X-Trace-Id", traceId)
 	req.Header.Set("Accept", "text/event-stream")
 
-	resp, err := httpClient.Do(req)
+	resp, err := streamHTTPClient.Do(req)
 	if err != nil {
 		return err
 	}

@@ -36,7 +36,37 @@ SESSION_CLEANUP_INTERVAL = int(os.getenv("SESSION_CLEANUP_INTERVAL", str(6 * 360
 
 TEXT_SPLITTER_CHUNK_SIZE = 200
 TEXT_SPLITTER_CHUNK_OVERLAP = 30
+# 分片策略（实验 E：标题路径前缀）：是否给每个 chunk 前置「文档标题 > 小节标题」路径
+# 开启后 embedding/BM25 都带上结构信息；关闭回退为纯 RecursiveCharacterTextSplitter（基线）。
+# 改这个开关必须重新导入知识库（kb_import.py）才会生效，因为分片是索引期动作。
+ENABLE_CHUNK_TITLE_PREFIX = os.getenv("ENABLE_CHUNK_TITLE_PREFIX", "true").lower() == "true"
 RETRIEVER_TOP_K = 3
+# 检索相似度阈值过滤开关：默认开启；关闭后 search_kb 不做任何分数过滤
+ENABLE_RETRIEVAL_SCORE_THRESHOLD = os.getenv("ENABLE_RETRIEVAL_SCORE_THRESHOLD", "true").lower() == "true"
+# 检索相似度阈值：低于该分数的 chunk 被过滤，全部被滤掉则返回"未找到相关信息"（模型据此拒答）。
+# 开关打开后阈值始终生效（无"等于0不过滤"特殊分支），默认 0——dense/hybrid 分数均为正时自然不过滤，
+# 但 rerank 链路对数似然可为负，默认 0 也会滤掉负分 chunk。
+# 注意分数量纲随检索模式变化：dense 为 cosine 相似度（实测有答案 top-1 约 0.5~0.8），
+# hybrid/RRF 为融合分（约 0.5~1.0），rerank 为 cross-encoder 对数似然（可正可负，慎用阈值）。
+RETRIEVAL_SCORE_THRESHOLD = float(os.getenv("RETRIEVAL_SCORE_THRESHOLD", "0"))
+
+# ====================== 混合检索配置 ======================
+# dense 向量名（OpenAI Embeddings）/ sparse 向量名（fastembed BM25）
+DENSE_VECTOR_NAME = "dense"
+SPARSE_VECTOR_NAME = "sparse"
+# sparse 检索模型：Qdrant/bm25 是纯统计 BM25，CPU 友好，支持中文（multilingual tokenizer）
+SPARSE_MODEL_NAME = "Qdrant/bm25"
+# 融合策略：rff（Reciprocal Rank Fusion），无需分数归一化
+HYBRID_FUSION = "rrf"
+# hybrid 检索的候选池大小（RRF 前每个检索器各取这么多，融合后取 top-k）
+HYBRID_PREFETCH_K = 20
+
+# ====================== Rerank 配置 ======================
+# 是否启用 cross-encoder 重排（bge-reranker-v2-m3）。默认开启，构建镜像时已预下载模型
+ENABLE_RERANK = os.getenv("ENABLE_RERANK", "true").lower() == "true"
+# rerank 候选池大小：先 hybrid 取 top-N，再 rerank 取 top-k
+# CPU 单次前向约 3~5s，N 直接决定耗时；10 候选实测 30~50s 会顶到 Go 侧超时，故默认 5
+RERANK_CANDIDATE_N = int(os.getenv("RERANK_CANDIDATE_N", "5"))
 
 # ====================== 默认 Prompt ======================
 DEFAULT_SYSTEM_PROMPT = """你是智能客服系统 的智能客服"小Q"。
@@ -48,6 +78,7 @@ DEFAULT_SYSTEM_PROMPT = """你是智能客服系统 的智能客服"小Q"。
 ## 行为准则
 - 回答简洁，每次 2-3 句话
 - 不知道的就查询知识库，查不到就诚实告知
+- 如果知识库里没有相关信息，就提示用户转接人工
 - 保持友好亲切的语气
 ## 服务信息
 - 每次回复结尾必须附上一行：智能客服 客服中心 | 工作时间 9:00-18:00"""

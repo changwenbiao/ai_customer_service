@@ -27,7 +27,7 @@ from langchain.tools import tool
 from langchain.agents import create_agent
 from langchain.agents.middleware import before_model, after_model
 from langchain.chat_models import init_chat_model
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 import openai
 from langchain_openai import OpenAIEmbeddings
 from langchain_qdrant import QdrantVectorStore
@@ -222,6 +222,16 @@ async def lifespan(app: FastAPI):
             app.state.kb_workers.append(t)
         logger.info("✅ KB index workers started (%d)", n_workers)
 
+        # 5. 预加载 reranker 模型（bge-reranker-v2-m3，~1.2GB），避免首次请求超时
+        if ENABLE_RERANK:
+            from rerank import get_reranker
+            logger.info("⏳ 正在加载 reranker 模型 %s ...", "BAAI/bge-reranker-v2-m3")
+            rk = await asyncio.to_thread(get_reranker)
+            if rk is not None:
+                logger.info("✅ reranker 模型加载完成")
+            else:
+                logger.warning("⚠️ reranker 加载失败，将降级为不重排")
+
     except Exception as e:
         logger.exception(f"❌ 服务启动初始化失败:{str(e)}")
         raise
@@ -354,6 +364,10 @@ async def agent_chat(req: ChatRequest, request: Request):
                 content=None
             )
         last_msg = messages[-1]
+        # 取最后一条 AIMessage 作为最终回答，避免异常情况下取到 ToolMessage（工具返回的知识库片段）
+        ai_msgs = [m for m in messages if isinstance(m, AIMessage)]
+        if ai_msgs:
+            last_msg = ai_msgs[-1]
         content = last_msg.content if hasattr(last_msg, "content") else ""
         async with _pool_conn(request.app) as conn:
             await _record_usage_after_chat(request, conn, tenant_id, thread_id, messages)
@@ -420,8 +434,9 @@ async def agent_chat_stream(req: ChatRequest, request: Request):
                 stream_mode="messages"
             ):
                 stream_msgs.append(msg)
-                # 只推送 AIMessage 的内容（过滤 HumanMessage 和系统消息）
-                if hasattr(msg, "content") and msg.content and not isinstance(msg, HumanMessage):
+                # 只推送 AIMessage 的内容（过滤 HumanMessage、ToolMessage、SystemMessage）
+                # ToolMessage 是 search_kb 等工具的返回结果（知识库片段），不应展示给用户
+                if isinstance(msg, AIMessage) and msg.content:
                     chunk = msg.content if isinstance(msg.content, str) else str(msg.content)
                     if chunk:
                         full_content += chunk
@@ -484,6 +499,10 @@ async def agent_resume(req: ResumeRequest, request: Request):
         if not messages:
             return AgentResp(success=False, is_interrupt=False, content="resume执行完成无返回消息")
         last_msg = messages[-1]
+        # 取最后一条 AIMessage 作为最终回答，避免异常情况下取到 ToolMessage（工具返回的知识库片段）
+        ai_msgs = [m for m in messages if isinstance(m, AIMessage)]
+        if ai_msgs:
+            last_msg = ai_msgs[-1]
         content = last_msg.content if hasattr(last_msg, "content") else ""
         async with _pool_conn(request.app) as conn:
             await _record_usage_after_chat(request, conn, tenant_id, thread_id, messages)

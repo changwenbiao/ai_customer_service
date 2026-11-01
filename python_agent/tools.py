@@ -3,11 +3,15 @@ P4-3：Agent 工具函数模块
 从 main.py 拆分，包含 search_kb、query_order、transfer_to_human 三个工具。
 采用 app 注入模式：在 main.py 中调用 set_app(app) 注入全局实例。
 """
+import asyncio
+
 from langchain_core.tools import tool
 from langgraph.types import interrupt
 
-from cache import kb_cache_get, kb_cache_set, kb_singleflight
-from config import GO_BUSINESS_API, RETRIEVER_TOP_K
+# Redis 检索缓存暂时关闭：kb_cache_get / kb_cache_set 的调用已注释（重新打开时恢复导入即可）
+from cache import kb_singleflight
+from config import GO_BUSINESS_API, RETRIEVER_TOP_K, ENABLE_RERANK, RERANK_CANDIDATE_N, \
+    RETRIEVAL_SCORE_THRESHOLD, ENABLE_RETRIEVAL_SCORE_THRESHOLD
 from db_pool import _pool_conn
 
 # 模块级 app 引用，由 main.py 注入
@@ -66,12 +70,13 @@ async def search_kb(query: str) -> str:
     tid = _tenant_var.get() or ""
     thread_id = (_thread_var.get() if _thread_var is not None else "") or ""
 
+    # ===== Redis 检索缓存暂时关闭：仅注释读/写缓存调用，结构保留，重新打开时取消注释即可 =====
     # 需求10：检索缓存改为 Redis（多实例共享，失败自动降级为直接回源）
     redis_client = getattr(_app.state, "redis_client", None)
-    cached = await kb_cache_get(redis_client, tid, query)
-    if cached is not None:
-        _logger.debug(f"[KB Cache HIT] tenant={tid}, query={query[:30]}")
-        return cached
+    # cached = await kb_cache_get(redis_client, tid, query)
+    # if cached is not None:
+    #     _logger.debug(f"[KB Cache HIT] tenant={tid}, query={query[:30]}")
+    #     return cached
 
     # 需求3改造：绕过 retriever 直调 store，拿真实相似度分数落库 kb_hits。
     # retriever.ainvoke() 接口契约固定返回 list[Document]，分数会被丢弃
@@ -80,19 +85,44 @@ async def search_kb(query: str) -> str:
     if store is None:
         return "知识库暂未就绪，请稍后再试。"
 
-    # 需求10：击穿防护——热点 key 失效瞬间，同实例并发请求只放一个回源
+    # 需求10：击穿防护——热点 key 失效瞬间，同实例并发请求只放一个回源（进程内锁，不涉 Redis，保留）
     async with kb_singleflight(tid, query):
         # 双检：等锁期间可能已被其他请求回源并写入缓存
-        cached = await kb_cache_get(redis_client, tid, query)
-        if cached is not None:
-            _logger.debug(f"[KB Cache HIT-after-lock] tenant={tid}, query={query[:30]}")
-            return cached
+        # cached = await kb_cache_get(redis_client, tid, query)
+        # if cached is not None:
+        #     _logger.debug(f"[KB Cache HIT-after-lock] tenant={tid}, query={query[:30]}")
+        #     return cached
         try:
-            pairs = await store.asimilarity_search_with_score(query, k=RETRIEVER_TOP_K)
+            # rerank 开启时：hybrid 取 top-N 候选，再用 cross-encoder 重排取 top-k
+            if ENABLE_RERANK:
+                from rerank import rerank_items
+                raw_pairs = await store.asimilarity_search_with_score(query, k=RERANK_CANDIDATE_N)
+                items = [{"doc_id": d.metadata.get("doc_id", ""),
+                          "title": d.metadata.get("title", ""),
+                          "content": d.page_content,
+                          "score": float(s),
+                          "_idx": i} for i, (d, s) in enumerate(raw_pairs)]
+                # compute_score 是 CPU 同步推理，放线程池避免阻塞事件循环
+                reranked = await asyncio.to_thread(rerank_items, query, items,
+                                                   RETRIEVER_TOP_K, RERANK_CANDIDATE_N)
+                # 按 rerank 后的顺序，用 _idx 找回原始 Document
+                pairs = [(raw_pairs[it["_idx"]][0], it["score"]) for it in reranked]
+            else:
+                pairs = await store.asimilarity_search_with_score(query, k=RETRIEVER_TOP_K)
         except Exception as e:
             # 检索期降级：embedding 调用失败（key 错误/服务不可用）不抛穿对话，如实告知
             _logger.warning(f"[KB Degrade] tenant={tid} 检索失败，降级为纯LLM: {str(e)[:150]}")
             return "知识库暂未就绪，请稍后再试。"
+        # 相似度阈值过滤（ENABLE_RETRIEVAL_SCORE_THRESHOLD 开关默认打开）：低于阈值的 chunk 剔除，
+        # 全被滤掉则走"未找到相关信息"分支（模型据此拒答）。
+        # 开关打开后阈值始终生效；默认 0 时 dense/hybrid 分数均为正，自然不过滤（rerank 对数似然可为负，会滤负分）。
+        if ENABLE_RETRIEVAL_SCORE_THRESHOLD and pairs:
+            filtered = [(d, s) for d, s in pairs if s >= RETRIEVAL_SCORE_THRESHOLD]
+            if len(filtered) < len(pairs):
+                _logger.info(
+                    f"[KB Threshold] tenant={tid} query={query[:30]} 阈值{RETRIEVAL_SCORE_THRESHOLD:.3f} "
+                    f"过滤 {len(pairs) - len(filtered)}/{len(pairs)} 条")
+            pairs = filtered
         docs = [doc for doc, _score in pairs]
         if not docs:
             result = "未找到相关信息，建议转接人工客服。"
@@ -102,8 +132,8 @@ async def search_kb(query: str) -> str:
         # KB 闭环：检索结果落库（命中明细含真实分数 / 未命中查询）
         await _record_kb_hits(tid, thread_id, query, pairs)
 
-        await kb_cache_set(redis_client, tid, query, result)
-        _logger.debug(f"[KB Cache MISS] tenant={tid}, query={query[:30]}, cached")
+        # await kb_cache_set(redis_client, tid, query, result)
+        # _logger.debug(f"[KB Cache MISS] tenant={tid}, query={query[:30]}, cached")
         return result
 
 

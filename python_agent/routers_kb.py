@@ -16,10 +16,11 @@ from qdrant_client.http import models as qmodels
 
 from agent_factory import ensure_tenant_vector
 from cache import clear_kb_cache
+from rerank import rerank_items
 from db_ops import (check_kb_quota, collection_name, get_platform_setting,
                     set_platform_setting, tenant_from_request)
 from db_pool import _pool_conn
-from config import INTERNAL_API_TOKEN, RETRIEVER_TOP_K
+from config import INTERNAL_API_TOKEN, RETRIEVER_TOP_K, RERANK_CANDIDATE_N
 from kb_parser import extract_text
 
 logger = logging.getLogger("agent.routers_kb")
@@ -311,12 +312,17 @@ async def kb_delete(doc_id: str, request: Request):
         file_name = row[0] if row else ""
         # 从该租户的 Qdrant 集合按 doc_id 元数据删除
         # 注意：langchain_qdrant 写入时 metadata 嵌套在 payload.metadata 下，过滤 key 必须带前缀
-        request.app.state.qdrant_client.delete(
-            collection_name=collection_name(tenant_id),
-            points_selector=qmodels.FilterSelector(filter=qmodels.Filter(must=[
-                qmodels.FieldCondition(key="metadata.doc_id", match=qmodels.MatchValue(value=doc_id))
-            ])),
-        )
+        # collection 可能不存在（被手动删过但 DB 记录残留），或 points 已被批量删除过，跳过即可，
+        # DB 记录和共享卷文件仍正常清理（与 kb_batch / kb_reindex / kb_index_worker 的容错模式一致）
+        try:
+            request.app.state.qdrant_client.delete(
+                collection_name=collection_name(tenant_id),
+                points_selector=qmodels.FilterSelector(filter=qmodels.Filter(must=[
+                    qmodels.FieldCondition(key="metadata.doc_id", match=qmodels.MatchValue(value=doc_id))
+                ])),
+            )
+        except Exception:
+            pass
         async with _pool_conn(request.app) as conn:
             async with conn.cursor() as cur:
                 await cur.execute(
@@ -438,24 +444,41 @@ async def kb_test_query(request: Request):
     except (TypeError, ValueError):
         k = RETRIEVER_TOP_K
     k = max(1, min(k, 10))  # 上限保护：避免一次拉过多分片
+    # 检索模式：hybrid（默认，dense+sparse RRF）/ dense（仅稠密）/ sparse（仅 BM25）
+    #           / rerank（hybrid 取 top-N 候选后用 cross-encoder 重排取 top-k）
+    mode = (body.get("mode") or "hybrid").strip().lower()
+    if mode not in ("hybrid", "dense", "sparse", "rerank"):
+        mode = "hybrid"
 
     store = await ensure_tenant_vector(request.app, tenant_id)
     if store is None:
         return {"code": 503, "msg": "向量模型/向量库不可用，请检查租户模型配置"}
     try:
-        pairs = await store.asimilarity_search_with_score(query, k=k)
+        if mode == "rerank":
+            # 先用 hybrid 召回 top-N 候选（受 k 上限约束），再用 cross-encoder 重排取 top-k
+            retrieve_k = max(k, RERANK_CANDIDATE_N)
+            pairs = await store.asimilarity_search_with_score(query, k=retrieve_k, mode="hybrid")
+            items = [{
+                "doc_id": doc.metadata.get("doc_id", ""),
+                "title": doc.metadata.get("title", ""),
+                "score": float(score),
+                "content": doc.page_content,
+            } for doc, score in pairs]
+            items = rerank_items(query, items, top_k=k, candidate_n=retrieve_k)
+        else:
+            pairs = await store.asimilarity_search_with_score(query, k=k, mode=mode)
+            items = [{
+                "doc_id": doc.metadata.get("doc_id", ""),
+                "title": doc.metadata.get("title", ""),
+                "score": float(score),
+                "content": doc.page_content,
+            } for doc, score in pairs]
     except Exception as e:
-        logger.warning("KB test-query failed tenant=%s: %s", tenant_id, str(e)[:200])
+        logger.warning("KB test-query failed tenant=%s mode=%s: %s", tenant_id, mode, str(e)[:200])
         return {"code": 500, "msg": "检索失败：" + str(e)[:200]}
 
-    items = [{
-        "doc_id": doc.metadata.get("doc_id", ""),
-        "title": doc.metadata.get("title", ""),
-        "score": float(score),
-        "content": doc.page_content,
-    } for doc, score in pairs]
-    logger.info("KB test-query tenant=%s k=%d hits=%d", tenant_id, k, len(items))
-    return {"code": 0, "data": {"query": query, "k": k, "count": len(items), "items": items}}
+    logger.info("KB test-query tenant=%s mode=%s k=%d hits=%d", tenant_id, mode, k, len(items))
+    return {"code": 0, "data": {"query": query, "k": k, "mode": mode, "count": len(items), "items": items}}
 
 
 @router.post("/agent/kb/index")

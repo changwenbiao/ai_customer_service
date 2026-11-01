@@ -1,0 +1,100 @@
+{"id": "E001", "q": "7天无理由退货从什么时候开始算？", "category": "高频", "answerable": true, "expected_doc_titles": ["退换货政策"], "must_contain": ["7个自然日", "签收次日"], "evidence_terms": ["7个自然日"], "reference": "自签收次日起7个自然日内，商品完好且不影响二次销售。"}
+{"id": "E002", "q": "7天无理由退货的运费由谁承担？", "category": "高频", "answerable": true, "expected_doc_titles": ["退换货政策"], "must_contain": ["买家承担"], "evidence_terms": ["买家承担"], "reference": "由买家承担；订单含运费险的按运费险规则赔付。"}
+{"id": "E003", "q": "哪些商品不支持7天无理由退货？", "category": "高频", "answerable": true, "expected_doc_titles": ["退换货政策"], "must_contain": ["定制", "生鲜", "内衣"], "evidence_terms": ["定制"], "reference": "定制商品、生鲜食品、内衣裤及贴身衣物、已激活数码、已拆封音像制品、个人护理用品。"}
+{"id": "E004", "q": "15天质量问题退换的运费谁承担？", "category": "高频", "answerable": true, "expected_doc_titles": ["退换货政策"], "must_contain": ["商家承担"], "evidence_terms": ["商家承担"], "reference": "商家承担往返运费。"}
+{"id": "E005", "q": "申请15天质量问题退换需要提供什么凭证？", "category": "长尾", "answerable": true, "expected_doc_titles": ["退换货政策"], "must_contain": ["照片", "视频"], "evidence_terms": ["照片"], "reference": "需提供商品照片或视频，大家电需提供故障视频。"}
+{"id": "E006", "q": "银行卡支付的退款多久能到账？", "category": "高频", "answerable": true, "expected_doc_titles": ["退换货政策"], "must_contain": ["3-7个工作日", "原路"], "evidence_terms": ["3-7个工作日"], "reference": "银行卡3-7个工作日；微信支付宝1-3个工作日。"}
+{"id": "E007", "q": "退款金额包含哪些部分？", "category": "长尾", "answerable": true, "expected_doc_titles": ["退换货政策"], "must_contain": ["实付", "运费"], "evidence_terms": ["实付"], "reference": "商品实付金额加商家承担的运费，买家原因产生的运费不退。"}
+{"id": "E008", "q": "换货申请的审核时效是多久？", "category": "长尾", "answerable": true, "expected_doc_titles": ["退换货政策"], "must_contain": ["24小时"], "evidence_terms": ["24小时"], "reference": "商家24小时内审核。"}
+{"id": "E009", "q": "换货流程里的仓库质检需要多久？", "category": "长尾", "answerable": true, "expected_doc_titles": ["退换货政策"], "must_contain": ["48小时"], "evidence_terms": ["48小时"], "reference": "仓库48小时内完成质检。"}
+{"id": "E010", "q": "大家电签收后多久内可以换货？", "category": "高频", "answerable": true, "expected_doc_titles": ["退换货政策"], "must_contain": ["30日"], "evidence_terms": ["30日"], "reference": "签收后30日内出现性能故障可选择换货。"}
+{"id": "E011", "q": "大家电的整机和主要部件保修期分别是多久？", "category": "多跳", "answerable": true, "expected_doc_titles": ["退换货政策"], "must_contain": ["1年", "3年"], "evidence_terms": ["1年"], "reference": "整机保修1年，主要部件保修3年。"}
+{"id": "E012", "q": "赠品没有退回会怎么处理？", "category": "长尾", "answerable": true, "expected_doc_titles": ["退换货政策"], "must_contain": ["扣减", "市场价"], "evidence_terms": ["扣减"], "reference": "按赠品市场价扣减退款金额。"}
+{"id": "E013", "q": "满多少金额可以包邮？", "category": "高频", "answerable": true, "expected_doc_titles": ["运费与配送规则"], "must_contain": ["99元"], "evidence_terms": ["99元"], "reference": "单笔订单实付满99元包邮。"}
+{"id": "E014", "q": "不满99元收多少基础运费？", "category": "高频", "answerable": true, "expected_doc_titles": ["运费与配送规则"], "must_contain": ["8元"], "evidence_terms": ["8元"], "reference": "收取基础运费8元。"}
+{"id": "E015", "q": "哪些地区属于不包邮地区？", "category": "高频", "answerable": true, "expected_doc_titles": ["运费与配送规则"], "must_contain": ["新疆", "西藏", "内蒙古", "青海", "宁夏"], "evidence_terms": ["新疆"], "reference": "新疆、西藏、内蒙古、青海、宁夏不包邮。"}
+{"id": "E016", "q": "偏远地区的首重和续重怎么收费？", "category": "长尾", "answerable": true, "expected_doc_titles": ["运费与配送规则"], "must_contain": ["12元", "8元"], "evidence_terms": ["12元"], "reference": "首重12元，续重8元每公斤。"}
+{"id": "E017", "q": "现货商品付款后多久发货？", "category": "高频", "answerable": true, "expected_doc_titles": ["运费与配送规则"], "must_contain": ["48小时"], "evidence_terms": ["48小时"], "reference": "付款后48小时内发货。"}
+{"id": "E018", "q": "预售商品最长多久发货？", "category": "高频", "answerable": true, "expected_doc_titles": ["运费与配送规则"], "must_contain": ["15天"], "evidence_terms": ["15天"], "reference": "按商品页承诺时间发货，最长不超过15天。"}
+{"id": "E019", "q": "大促期间的发货时效是多少？", "category": "长尾", "answerable": true, "expected_doc_titles": ["运费与配送规则"], "must_contain": ["72小时"], "evidence_terms": ["72小时"], "reference": "618、双11等大促期间72小时内发货。"}
+{"id": "E020", "q": "华东华南华北地区的配送时效？", "category": "高频", "answerable": true, "expected_doc_titles": ["运费与配送规则"], "must_contain": ["1-3天"], "evidence_terms": ["1-3天"], "reference": "1-3天送达。"}
+{"id": "E021", "q": "48小时没有揽收记录可以怎么处理？", "category": "长尾", "answerable": true, "expected_doc_titles": ["运费与配送规则"], "must_contain": ["催发", "退款"], "evidence_terms": ["催发"], "reference": "可申请催发，或直接申请退款。"}
+{"id": "E022", "q": "超过承诺时效7天仍未送达怎么办？", "category": "长尾", "answerable": true, "expected_doc_titles": ["运费与配送规则"], "must_contain": ["补发", "退款"], "evidence_terms": ["补发"], "reference": "可申请补发或全额退款。"}
+{"id": "E023", "q": "包裹丢失或破损由谁承担责任？", "category": "高频", "answerable": true, "expected_doc_titles": ["运费与配送规则"], "must_contain": ["商家"], "evidence_terms": ["商家"], "reference": "由商家承担责任，可重新发货或全额退款。"}
+{"id": "E024", "q": "生鲜坏果的申请时限和凭证要求？", "category": "高频", "answerable": true, "expected_doc_titles": ["运费与配送规则"], "must_contain": ["48小时", "拍照"], "evidence_terms": ["48小时"], "reference": "签收后48小时内拍照申请，按坏果比例赔付。"}
+{"id": "E025", "q": "平台默认开具什么类型的发票？", "category": "高频", "answerable": true, "expected_doc_titles": ["发票与支付规则"], "must_contain": ["电子普通发票"], "evidence_terms": ["电子普通发票"], "reference": "默认开具电子普通发票。"}
+{"id": "E026", "q": "开增值税专用发票需要什么条件？", "category": "长尾", "answerable": true, "expected_doc_titles": ["发票与支付规则"], "must_contain": ["一般纳税人", "3个工作日"], "evidence_terms": ["一般纳税人"], "reference": "需上传一般纳税人资质证明，3个工作日内审核。"}
+{"id": "E027", "q": "订单完成后多久内可以申请开票？", "category": "高频", "answerable": true, "expected_doc_titles": ["发票与支付规则"], "must_contain": ["30天"], "evidence_terms": ["30天"], "reference": "订单完成后30天内可申请开票。"}
+{"id": "E028", "q": "发票开具后多久发送到邮箱？", "category": "长尾", "answerable": true, "expected_doc_titles": ["发票与支付规则"], "must_contain": ["1-3个工作日"], "evidence_terms": ["1-3个工作日"], "reference": "开票申请通过后1-3个工作日内发送。"}
+{"id": "E029", "q": "已开票的发票多久内可以重开、能重开几次？", "category": "多跳", "answerable": true, "expected_doc_titles": ["发票与支付规则"], "must_contain": ["30天", "1次"], "evidence_terms": ["30天"], "reference": "已开票30天内可重开1次，跨月不可改抬头。"}
+{"id": "E030", "q": "信用卡12期分期的手续费率是多少？", "category": "长尾", "answerable": true, "expected_doc_titles": ["发票与支付规则"], "must_contain": ["7.2%"], "evidence_terms": ["7.2%"], "reference": "12期手续费7.2%，由银行收取。"}
+{"id": "E031", "q": "未支付订单多久会自动取消？", "category": "高频", "answerable": true, "expected_doc_titles": ["发票与支付规则"], "must_contain": ["30分钟"], "evidence_terms": ["30分钟"], "reference": "下单后30分钟自动取消并释放库存。"}
+{"id": "E032", "q": "重复支付的金额多久退回？", "category": "长尾", "answerable": true, "expected_doc_titles": ["发票与支付规则"], "must_contain": ["1-3个工作日"], "evidence_terms": ["1-3个工作日"], "reference": "核实后1-3个工作日原路退回。"}
+{"id": "E033", "q": "价格保护的申请期限是多久？", "category": "高频", "answerable": true, "expected_doc_titles": ["发票与支付规则"], "must_contain": ["7天"], "evidence_terms": ["7天"], "reference": "签收后7天内，同商品同规格降价可申请。"}
+{"id": "E034", "q": "哪些情况不参与价格保护？", "category": "长尾", "answerable": true, "expected_doc_titles": ["发票与支付规则"], "must_contain": ["秒杀", "优惠券"], "evidence_terms": ["秒杀"], "reference": "秒杀、直播专享价、优惠券或满减价差、赠品变化、跨店铺比价都不参与。"}
+{"id": "E035", "q": "平台支持货到付款吗？", "category": "高频", "answerable": true, "expected_doc_titles": ["发票与支付规则"], "must_contain": ["不支持"], "evidence_terms": ["不支持"], "reference": "不支持货到付款。"}
+{"id": "E036", "q": "V2会员的成长值区间是多少？", "category": "长尾", "answerable": true, "expected_doc_titles": ["会员与优惠券规则"], "must_contain": ["1000", "4999"], "evidence_terms": ["1000"], "reference": "1000到4999。"}
+{"id": "E037", "q": "V3会员能享受什么折扣？", "category": "高频", "answerable": true, "expected_doc_titles": ["会员与优惠券规则"], "must_contain": ["9折"], "evidence_terms": ["9折"], "reference": "部分品类9折。"}
+{"id": "E038", "q": "积分是怎么获取的？", "category": "高频", "answerable": true, "expected_doc_titles": ["会员与优惠券规则"], "must_contain": ["1元", "1积分"], "evidence_terms": ["1元"], "reference": "消费1元得1积分，运费不计积分。"}
+{"id": "E039", "q": "积分的抵扣比例是多少？", "category": "高频", "answerable": true, "expected_doc_titles": ["会员与优惠券规则"], "must_contain": ["100积分", "1元"], "evidence_terms": ["100积分"], "reference": "100积分抵1元。"}
+{"id": "E040", "q": "单笔订单最多能用积分抵扣多少比例？", "category": "长尾", "answerable": true, "expected_doc_titles": ["会员与优惠券规则"], "must_contain": ["10%"], "evidence_terms": ["10%"], "reference": "最多抵扣订单金额的10%。"}
+{"id": "E041", "q": "积分的有效期是多久？", "category": "高频", "answerable": true, "expected_doc_titles": ["会员与优惠券规则"], "must_contain": ["12个月"], "evidence_terms": ["12个月"], "reference": "自获得之日起12个月有效。"}
+{"id": "E042", "q": "平台券和店铺券可以叠加使用吗？", "category": "高频", "answerable": true, "expected_doc_titles": ["会员与优惠券规则"], "must_contain": ["平台券", "店铺券", "叠加"], "evidence_terms": ["平台券"], "reference": "平台券与店铺券可叠加，同类型券不可叠加。"}
+{"id": "E043", "q": "单笔订单最多使用几张优惠券？", "category": "高频", "answerable": true, "expected_doc_titles": ["会员与优惠券规则"], "must_contain": ["2张"], "evidence_terms": ["2张"], "reference": "最多2张。"}
+{"id": "E044", "q": "优惠总额的上限是多少？", "category": "长尾", "answerable": true, "expected_doc_titles": ["会员与优惠券规则"], "must_contain": ["50%"], "evidence_terms": ["50%"], "reference": "不超过商品实付金额的50%。"}
+{"id": "E045", "q": "整单退款后优惠券会返还吗？", "category": "长尾", "answerable": true, "expected_doc_titles": ["会员与优惠券规则"], "must_contain": ["返还"], "evidence_terms": ["返还"], "reference": "有效期内原路返还；部分退款不返还。"}
+{"id": "E046", "q": "会员日是每月几号，有什么权益？", "category": "高频", "answerable": true, "expected_doc_titles": ["会员与优惠券规则"], "must_contain": ["8日", "双倍积分"], "evidence_terms": ["8日"], "reference": "每月8日双倍积分。"}
+{"id": "E047", "q": "预售定金100元可以抵扣多少？", "category": "高频", "answerable": true, "expected_doc_titles": ["商品与库存规则"], "must_contain": ["300"], "evidence_terms": ["300"], "reference": "定金100元抵扣300元，以商品页为准。"}
+{"id": "E048", "q": "预售逾期未付尾款定金会退吗？", "category": "高频", "answerable": true, "expected_doc_titles": ["商品与库存规则"], "must_contain": ["不退"], "evidence_terms": ["不退"], "reference": "订单自动取消，定金不退。"}
+{"id": "E049", "q": "下单后库存会锁定多久？", "category": "长尾", "answerable": true, "expected_doc_titles": ["商品与库存规则"], "must_contain": ["15分钟"], "evidence_terms": ["15分钟"], "reference": "锁定15分钟，超时未支付自动释放。"}
+{"id": "E050", "q": "确认缺货后补偿多少？", "category": "高频", "answerable": true, "expected_doc_titles": ["商品与库存规则", "服务承诺与转人工规则"], "must_contain": ["5元"], "evidence_terms": ["5元"], "reference": "主动取消并补偿5元无门槛券。"}
+{"id": "E051", "q": "秒杀商品的限购数量是多少？", "category": "高频", "answerable": true, "expected_doc_titles": ["商品与库存规则"], "must_contain": ["1件"], "evidence_terms": ["1件"], "reference": "每账号每场限购1件。"}
+{"id": "E052", "q": "官方旗舰店商品承诺假货怎么赔？", "category": "高频", "answerable": true, "expected_doc_titles": ["商品与库存规则"], "must_contain": ["假一赔十"], "evidence_terms": ["假一赔十"], "reference": "官方旗舰店及自营商品假一赔十。"}
+{"id": "E053", "q": "系统超卖会怎么处理？", "category": "长尾", "answerable": true, "expected_doc_titles": ["商品与库存规则"], "must_contain": ["10元"], "evidence_terms": ["10元"], "reference": "优先补货，无法补货的全额退款并额外补偿10元券。"}
+{"id": "E054", "q": "商品详情页的划线价代表什么？", "category": "长尾", "answerable": true, "expected_doc_titles": ["商品与库存规则"], "must_contain": ["厂商指导价", "历史成交价"], "evidence_terms": ["厂商指导价"], "reference": "为厂商指导价或历史成交价，仅供参考。"}
+{"id": "E055", "q": "服装尺码表的误差范围是多少？", "category": "长尾", "answerable": true, "expected_doc_titles": ["商品与库存规则"], "must_contain": ["±2cm"], "evidence_terms": ["±2cm"], "reference": "误差±2cm属正常范围。"}
+{"id": "E056", "q": "手机和数码产品的保修期是多久？", "category": "高频", "answerable": true, "expected_doc_titles": ["售后与保修规则"], "must_contain": ["1年"], "evidence_terms": ["1年"], "reference": "保修1年，自签收次日起算。"}
+{"id": "E057", "q": "大家电主要部件的保修期？", "category": "高频", "answerable": true, "expected_doc_titles": ["售后与保修规则", "退换货政策"], "must_contain": ["3年"], "evidence_terms": ["3年"], "reference": "主要部件3年保修。"}
+{"id": "E058", "q": "小家电的保修期是多久？", "category": "高频", "answerable": true, "expected_doc_titles": ["售后与保修规则"], "must_contain": ["6个月"], "evidence_terms": ["6个月"], "reference": "保修6个月。"}
+{"id": "E059", "q": "保修需要提供纸质发票吗？", "category": "高频", "answerable": true, "expected_doc_titles": ["售后与保修规则"], "must_contain": ["订单号"], "evidence_terms": ["订单号"], "reference": "凭订单号即可，无需纸质发票。"}
+{"id": "E060", "q": "维修一般多久完成？", "category": "长尾", "answerable": true, "expected_doc_titles": ["售后与保修规则"], "must_contain": ["7个工作日"], "evidence_terms": ["7个工作日"], "reference": "维修完成后7个工作日内寄回或上门完成。"}
+{"id": "E061", "q": "维修超过多久可以申请换新？", "category": "长尾", "answerable": true, "expected_doc_titles": ["售后与保修规则"], "must_contain": ["30天"], "evidence_terms": ["30天"], "reference": "超过30天未修复可申请换新。"}
+{"id": "E062", "q": "以旧换新支持哪些品类？", "category": "高频", "answerable": true, "expected_doc_titles": ["售后与保修规则"], "must_contain": ["手机", "家电"], "evidence_terms": ["手机"], "reference": "支持手机、平板、大家电。"}
+{"id": "E063", "q": "以旧换新质检后取消订单，运费谁承担？", "category": "长尾", "answerable": true, "expected_doc_titles": ["售后与保修规则"], "must_contain": ["用户"], "evidence_terms": ["用户"], "reference": "旧机寄回运费由用户承担。"}
+{"id": "E064", "q": "大家电高空作业费怎么收？", "category": "长尾", "answerable": true, "expected_doc_titles": ["售后与保修规则"], "must_contain": ["3层", "100元"], "evidence_terms": ["3层"], "reference": "3层及以上每层100元。"}
+{"id": "E065", "q": "安装加长管线怎么收费？", "category": "长尾", "answerable": true, "expected_doc_titles": ["售后与保修规则"], "must_contain": ["50元/米", "3米"], "evidence_terms": ["50元/米"], "reference": "超出标配3米的部分按50元每米收费。"}
+{"id": "E066", "q": "订单会经历哪些状态？", "category": "高频", "answerable": true, "expected_doc_titles": ["订单与账号规则"], "must_contain": ["待付款", "待发货", "已发货", "已签收", "已完成"], "evidence_terms": ["待付款"], "reference": "待付款、待发货、已发货、已签收、已完成，另有已取消和退款中。"}
+{"id": "E067", "q": "待发货订单自助取消后多久退款？", "category": "高频", "answerable": true, "expected_doc_titles": ["订单与账号规则"], "must_contain": ["1-3个工作日"], "evidence_terms": ["1-3个工作日"], "reference": "退款1-3个工作日原路退回。"}
+{"id": "E068", "q": "已发货的订单想取消怎么办？", "category": "高频", "answerable": true, "expected_doc_titles": ["订单与账号规则"], "must_contain": ["拒收", "退货"], "evidence_terms": ["拒收"], "reference": "需拒收或签收后申请退货。"}
+{"id": "E069", "q": "发货前可以修改几次收货地址？", "category": "高频", "answerable": true, "expected_doc_titles": ["订单与账号规则"], "must_contain": ["1次"], "evidence_terms": ["1次"], "reference": "发货前可修改1次。"}
+{"id": "E070", "q": "不同订单可以合并支付吗？", "category": "高频", "answerable": true, "expected_doc_titles": ["订单与账号规则"], "must_contain": ["不支持"], "evidence_terms": ["不支持"], "reference": "不同订单不支持合并支付。"}
+{"id": "E071", "q": "不同仓库的商品会怎么发货？", "category": "长尾", "answerable": true, "expected_doc_titles": ["订单与账号规则"], "must_contain": ["拆单"], "evidence_terms": ["拆单"], "reference": "自动拆单发货，物流单号分别推送。"}
+{"id": "E072", "q": "换绑手机号需要怎么验证？", "category": "高频", "answerable": true, "expected_doc_titles": ["订单与账号规则"], "must_contain": ["原手机号", "验证码"], "evidence_terms": ["原手机号"], "reference": "需原手机号接收验证码，24小时内生效。"}
+{"id": "E073", "q": "注销账号的冷静期是多久？", "category": "长尾", "answerable": true, "expected_doc_titles": ["订单与账号规则"], "must_contain": ["7天"], "evidence_terms": ["7天"], "reference": "7天冷静期，期间可撤回。"}
+{"id": "E074", "q": "账号被盗后客服多久响应？", "category": "长尾", "answerable": true, "expected_doc_titles": ["订单与账号规则"], "must_contain": ["2小时"], "evidence_terms": ["2小时"], "reference": "立即冻结账号，人工客服2小时内响应。"}
+{"id": "E075", "q": "没有订单号时怎么查询订单？", "category": "长尾", "answerable": true, "expected_doc_titles": ["订单与账号规则"], "must_contain": ["后四位"], "evidence_terms": ["后四位"], "reference": "提供下单手机号后四位加收货人姓名。"}
+{"id": "E076", "q": "AI客服的服务时间是什么？", "category": "高频", "answerable": true, "expected_doc_titles": ["服务承诺与转人工规则"], "must_contain": ["7×24"], "evidence_terms": ["7×24"], "reference": "AI客服7×24小时在线。"}
+{"id": "E077", "q": "人工客服的服务时间是什么？", "category": "高频", "answerable": true, "expected_doc_titles": ["服务承诺与转人工规则"], "must_contain": ["9:00-22:00"], "evidence_terms": ["9:00-22:00"], "reference": "人工客服9:00-22:00。"}
+{"id": "E078", "q": "人工客服首次响应时效是多久？", "category": "长尾", "answerable": true, "expected_doc_titles": ["服务承诺与转人工规则"], "must_contain": ["60秒"], "evidence_terms": ["60秒"], "reference": "60秒内首次响应。"}
+{"id": "E079", "q": "排队预计超过多久会提示用户？", "category": "长尾", "answerable": true, "expected_doc_titles": ["服务承诺与转人工规则"], "must_contain": ["3分钟"], "evidence_terms": ["3分钟"], "reference": "超过3分钟会提示。"}
+{"id": "E080", "q": "AI客服可以直接办理退款吗？", "category": "高频", "answerable": true, "expected_doc_titles": ["服务承诺与转人工规则"], "must_contain": ["不可", "退款"], "evidence_terms": ["不可"], "reference": "不可直接办理退款，涉及资金必须转人工。"}
+{"id": "E081", "q": "哪些类型的问题必须转人工？", "category": "高频", "answerable": true, "expected_doc_titles": ["服务承诺与转人工规则"], "must_contain": ["资金", "责任认定"], "evidence_terms": ["资金"], "reference": "涉及资金、责任认定、法律纠纷的问题必须转人工。"}
+{"id": "E082", "q": "转人工有哪些触发条件？", "category": "多跳", "answerable": true, "expected_doc_titles": ["服务承诺与转人工规则"], "must_contain": ["明确要求", "连续2轮"], "evidence_terms": ["明确要求"], "reference": "用户明确要求、投诉维权、金额争议、连续2轮未解决、高风险意图。"}
+{"id": "E083", "q": "投诉提交后多久回复？", "category": "长尾", "answerable": true, "expected_doc_titles": ["服务承诺与转人工规则"], "must_contain": ["48小时"], "evidence_terms": ["48小时"], "reference": "投诉专员48小时内回复。"}
+{"id": "E084", "q": "延迟发货的赔付标准是什么？", "category": "高频", "answerable": true, "expected_doc_titles": ["服务承诺与转人工规则"], "must_contain": ["5%"], "evidence_terms": ["5%"], "reference": "按实付金额5%赔付，最低5元最高50元。"}
+{"id": "E085", "q": "虚假发货的赔付标准是什么？", "category": "长尾", "answerable": true, "expected_doc_titles": ["服务承诺与转人工规则"], "must_contain": ["30%"], "evidence_terms": ["30%"], "reference": "按实付金额30%赔付，最低5元最高100元。"}
+{"id": "E086", "q": "跨境保税仓发货一般要多久？", "category": "无答案", "answerable": false, "expected_doc_titles": [], "must_contain": [], "evidence_terms": [], "reference": "知识库未覆盖该问题，应明确说明无法确认并引导转人工。"}
+{"id": "E087", "q": "运费险的理赔流程是什么？", "category": "无答案", "answerable": false, "expected_doc_titles": [], "must_contain": [], "evidence_terms": [], "reference": "知识库未覆盖该问题，应明确说明无法确认并引导转人工。"}
+{"id": "E088", "q": "企业团购有折扣吗？", "category": "无答案", "answerable": false, "expected_doc_titles": [], "must_contain": [], "evidence_terms": [], "reference": "知识库未覆盖该问题，应明确说明无法确认并引导转人工。"}
+{"id": "E089", "q": "直播间抽奖的规则是什么？", "category": "无答案", "answerable": false, "expected_doc_titles": [], "must_contain": [], "evidence_terms": [], "reference": "知识库未覆盖该问题，应明确说明无法确认并引导转人工。"}
+{"id": "E090", "q": "积分可以兑换实物商品吗？", "category": "无答案", "answerable": false, "expected_doc_titles": [], "must_contain": [], "evidence_terms": [], "reference": "知识库未覆盖该问题，应明确说明无法确认并引导转人工。"}
+{"id": "E091", "q": "支持门店自提吗？", "category": "无答案", "answerable": false, "expected_doc_titles": [], "must_contain": [], "evidence_terms": [], "reference": "知识库未覆盖该问题，应明确说明无法确认并引导转人工。"}
+{"id": "E092", "q": "海外直邮的税费由谁承担？", "category": "无答案", "answerable": false, "expected_doc_titles": [], "must_contain": [], "evidence_terms": [], "reference": "知识库未覆盖该问题，应明确说明无法确认并引导转人工。"}
+{"id": "E093", "q": "定制刻字怎么收费？", "category": "无答案", "answerable": false, "expected_doc_titles": [], "must_contain": [], "evidence_terms": [], "reference": "知识库未覆盖该问题，应明确说明无法确认并引导转人工。"}
+{"id": "E094", "q": "有免息分期券可以领吗？", "category": "无答案", "answerable": false, "expected_doc_titles": [], "must_contain": [], "evidence_terms": [], "reference": "知识库未覆盖该问题，应明确说明无法确认并引导转人工。"}
+{"id": "E095", "q": "积分可以转赠给朋友吗？", "category": "无答案", "answerable": false, "expected_doc_titles": [], "must_contain": [], "evidence_terms": [], "reference": "知识库未覆盖该问题，应明确说明无法确认并引导转人工。"}
+{"id": "E096", "q": "价格保护能对比其他平台的价格吗？", "category": "无答案", "answerable": false, "expected_doc_titles": [], "must_contain": [], "evidence_terms": [], "reference": "知识库未覆盖该问题，应明确说明无法确认并引导转人工。"}
+{"id": "E097", "q": "你们客服的工号是多少？", "category": "无答案", "answerable": false, "expected_doc_titles": [], "must_contain": [], "evidence_terms": [], "reference": "知识库未覆盖该问题，应明确说明无法确认并引导转人工。"}
+{"id": "E098", "q": "竞品平台的同款商品卖多少钱？", "category": "无答案", "answerable": false, "expected_doc_titles": [], "must_contain": [], "evidence_terms": [], "reference": "知识库未覆盖该问题，应明确说明无法确认并引导转人工。"}
+{"id": "E099", "q": "帮我查一下明天的天气", "category": "无答案", "answerable": false, "expected_doc_titles": [], "must_contain": [], "evidence_terms": [], "reference": "知识库未覆盖该问题，应明确说明无法确认并引导转人工。"}
+{"id": "E100", "q": "你们系统用的是什么数据库？", "category": "无答案", "answerable": false, "expected_doc_titles": [], "must_contain": [], "evidence_terms": [], "reference": "知识库未覆盖该问题，应明确说明无法确认并引导转人工。"}

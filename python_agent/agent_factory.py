@@ -18,6 +18,7 @@ from qdrant_client.http.models import Distance, VectorParams
 from config import *
 import tools
 from db_ops import load_active_prompt, collection_name
+from hybrid_search import HybridStore
 
 logger = logging.getLogger("agent.factory")
 
@@ -66,7 +67,7 @@ def build_agent(system_prompt: str):
 _vec_fail_ts: dict = {}
 _VEC_FAIL_TTL = 60
 
-async def ensure_tenant_vector(app, tenant_id: str) -> QdrantVectorStore | None:
+async def ensure_tenant_vector(app, tenant_id: str) -> "HybridStore | None":
     """确保租户的 Qdrant collection + vector_store 存在（首次自动灌入默认知识库）。
 
     降级策略：embedding/向量库任一不可用时返回 None（不抛异常），
@@ -91,13 +92,22 @@ async def ensure_tenant_vector(app, tenant_id: str) -> QdrantVectorStore | None:
                 vec_dim = len(probe)
                 app.state.vec_dim = vec_dim
                 logger.info("✅ vec_dim lazily probed via tenant embedding: dim=%d", vec_dim)
+            # 混合检索：named vectors（dense + sparse），sparse 用 Qdrant/bm25
             app.state.qdrant_client.create_collection(
                 collection_name=col,
-                vectors_config=VectorParams(size=vec_dim, distance=Distance.COSINE),
+                vectors_config={
+                    DENSE_VECTOR_NAME: VectorParams(size=vec_dim, distance=Distance.COSINE),
+                },
+                sparse_vectors_config={
+                    SPARSE_VECTOR_NAME: qmodels.SparseVectorParams(),
+                },
             )
-            logger.info("Qdrant collection [%s] created, dim=%d", col, vec_dim)
-        vs = QdrantVectorStore(client=app.state.qdrant_client, collection_name=col,
-                           embedding=tenant_emb)
+            logger.info("Qdrant collection [%s] created (hybrid: dense+sparse), dim=%d", col, vec_dim)
+        vs = HybridStore(
+            qdrant_client=app.state.qdrant_client,
+            collection_name=col,
+            embeddings=tenant_emb,
+        )
         app.state.tenant_stores[tenant_id] = vs
         _vec_fail_ts.pop(tenant_id, None)
         return vs

@@ -13,6 +13,11 @@ httpx==0.28.1
 langchain-text-splitters==1.1.2
 qdrant-client==1.19.0
 langchain-qdrant==1.1.0
+# 混合检索：dense（OpenAI API）+ sparse（Qdrant/bm25 本地生成）
+fastembed>=0.6.1
+jieba>=0.42.1  # 中文分词，BM25 前预切词（SimpleTokenizer 按空格切，中文无空格需先分词）
+# Cross-encoder rerank：bge-reranker-v2-m3
+FlagEmbedding>=1.2.11
 python-multipart==0.0.9
 redis==5.2.1
 # 知识库多格式解析（pdf/docx/xlsx）

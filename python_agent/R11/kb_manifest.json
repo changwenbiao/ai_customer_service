@@ -1,0 +1,14 @@
+{
+  "tenant": "t_demo",
+  "note": "R11 评测用知识库源文件清单；新增文档只需在此登记，再执行 kb_import.py",
+  "docs": [
+    { "file": "01-退换货政策.md", "title": "退换货政策", "category": "售后政策" },
+    { "file": "02-运费与配送规则.md", "title": "运费与配送规则", "category": "配送物流" },
+    { "file": "03-发票与支付规则.md", "title": "发票与支付规则", "category": "支付发票" },
+    { "file": "04-会员与优惠券规则.md", "title": "会员与优惠券规则", "category": "会员营销" },
+    { "file": "05-商品与库存规则.md", "title": "商品与库存规则", "category": "商品库存" },
+    { "file": "06-售后与保修规则.md", "title": "售后与保修规则", "category": "售后政策" },
+    { "file": "07-订单与账号规则.md", "title": "订单与账号规则", "category": "订单账号" },
+    { "file": "08-服务承诺与转人工规则.md", "title": "服务承诺与转人工规则", "category": "服务规范" }
+  ]
+}

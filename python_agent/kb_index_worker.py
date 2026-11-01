@@ -8,19 +8,58 @@
 import asyncio
 import json
 import logging
+import re
 import uuid
 
+from langchain_text_splitters import MarkdownHeaderTextSplitter
 from qdrant_client.http import models as qmodels
 
-from agent_factory import ensure_tenant_vector
+from agent_factory import ensure_tenant_vector, get_tenant_embeddings
 from cache import clear_kb_cache
+from config import DENSE_VECTOR_NAME, SPARSE_VECTOR_NAME, ENABLE_CHUNK_TITLE_PREFIX
 from db_ops import collection_name
 from db_pool import _pool_conn
+from hybrid_search import make_sparse_vector
 from routers_kb import KB_INDEX_QUEUE, read_kb_file_text
 
 logger = logging.getLogger("agent.kb_worker")
 
 MAX_TEXT_CHARS = 1_000_000  # 单文档参与分片的文本上限（约 1MB 字符），超长截断防 embedding 超时
+
+# 实验 E：标题路径前缀分片（Contextual Retrieval）
+# 1) 先按 markdown 标题切段，保留每段的「文档标题 / 小节标题」元数据
+#    （strip_headers=True 去掉原文标题行，标题信息统一由前缀承载，避免内容里重复出现标题）
+# 2) 每段再用 RecursiveCharacterTextSplitter（即 app.state.text_splitter）切小块
+# 3) 每个 chunk 前置「[文档标题 > 小节标题]」路径，让 dense embedding 和 sparse BM25 都带上结构信息
+_HEADER_SPLITTER = MarkdownHeaderTextSplitter(
+    headers_to_split_on=[("#", "doc_title"), ("##", "section")],
+    strip_headers=True,
+)
+_HEADING_LINE_RE = re.compile(r"^\s*#.*$", re.MULTILINE)
+
+
+def split_chunks_with_title_prefix(text: str, title: str, sub_splitter) -> list:
+    """标题感知分片 + 标题路径前缀；无标题或切分结果为空时回退为原分片逻辑。"""
+    sections = _HEADER_SPLITTER.split_text(text)
+    if not sections:
+        return sub_splitter.create_documents([text])
+    chunks = []
+    for sec in sections:
+        # 文档标题优先取 markdown 一级标题，缺失时用 DB 里的 title
+        doc_title = (sec.metadata.get("doc_title") or title or "").strip()
+        section = (sec.metadata.get("section") or "").strip()
+        prefix = f"[{doc_title} > {section}]" if section else f"[{doc_title}]"
+        for sub in sub_splitter.split_documents([sec]):
+            # 只有标题行、没有正文的段（如文档开头的一级标题）不生成 chunk，避免纯标题垃圾分片
+            body = _HEADING_LINE_RE.sub("", sub.page_content).strip()
+            if not body:
+                continue
+            sub.page_content = f"{prefix}\n{sub.page_content}"
+            sub.metadata["section"] = section
+            chunks.append(sub)
+    if not chunks:
+        return sub_splitter.create_documents([text])
+    return chunks
 
 
 async def _index_one(app, doc_id: str, tenant_id: str) -> None:
@@ -62,26 +101,47 @@ async def _index_one(app, doc_id: str, tenant_id: str) -> None:
         except Exception:
             pass
 
-        # 4) 分片（超长截断）
+        # 4) 分片（超长截断）：实验 E 开启时按「标题切段 + 标题路径前缀」分片，否则走基线切分
         text = content[:MAX_TEXT_CHARS]
-        chunks = app.state.text_splitter.create_documents([text])
+        if ENABLE_CHUNK_TITLE_PREFIX:
+            chunks = split_chunks_with_title_prefix(text, title, app.state.text_splitter)
+        else:
+            chunks = app.state.text_splitter.create_documents([text])
         if not chunks:
             await _mark_failed(app, doc_id, tenant_id, "文档分片结果为空")
             return
         texts = [ch.page_content for ch in chunks]
+        sections = [ch.metadata.get("section", "") for ch in chunks]
         ids = [str(uuid.uuid4()) for _ in range(len(texts))]
 
-        # 5) embedding + 写入 Qdrant
+        # 5) 生成 dense + sparse 向量 + 写入 Qdrant（named vectors）
         vs = await ensure_tenant_vector(app, tenant_id)
         if vs is None:
             await _mark_failed(app, doc_id, tenant_id, "向量模型/向量库不可用，索引失败（请检查后台模型配置）")
             return
-        await vs.aadd_texts(
-            texts,
-            metadatas=[{"doc_id": doc_id, "title": title, "source": "kb",
-                        "tenant_id": tenant_id}] * len(texts),
-            ids=ids,
-        )
+        # dense 向量：OpenAI Embeddings（异步批量）
+        tenant_emb = await get_tenant_embeddings(app, tenant_id)
+        dense_vecs = await tenant_emb.aembed_documents(texts)
+        # sparse 向量：fastembed Qdrant/bm25（本地 CPU，逐 chunk 生成）
+        sparse_vecs = [make_sparse_vector(t) for t in texts]
+
+        col = collection_name(tenant_id)
+        points = [
+            qmodels.PointStruct(
+                id=ids[i],
+                vector={
+                    DENSE_VECTOR_NAME: dense_vecs[i],
+                    SPARSE_VECTOR_NAME: sparse_vecs[i],
+                },
+                payload={
+                    "page_content": texts[i],
+                    "metadata": {"doc_id": doc_id, "title": title, "section": sections[i],
+                                 "source": "kb", "tenant_id": tenant_id},
+                },
+            )
+            for i in range(len(texts))
+        ]
+        app.state.qdrant_client.upsert(collection_name=col, points=points)
 
         # 6) 更新状态
         async with _pool_conn(app) as conn:
