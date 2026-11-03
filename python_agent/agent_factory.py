@@ -232,14 +232,18 @@ async def get_platform_model(app):
             model=model_name,
             model_provider="openai",
             temperature=0,
-            max_tokens=1024,
-            timeout=30,
-            max_retries=0,
+            max_tokens=MODEL_MAX_TOKENS,
+            timeout=MODEL_TIMEOUT,
+            max_retries=MODEL_MAX_RETRIES,
             api_key=api_key,
             base_url=api_base,
+            stream_chunk_timeout=MODEL_STREAM_CHUNK_TIMEOUT,
         )
         _tenant_model_cache[cache_key] = model
-        logger.info("✅ platform model created: model=%s", model_name)
+        logger.info(
+            "✅ platform model created: model=%s retries=%d timeout=%ds chunk_timeout=%ds",
+            model_name, MODEL_MAX_RETRIES, MODEL_TIMEOUT, MODEL_STREAM_CHUNK_TIMEOUT,
+        )
         return model
     except Exception as e:
         logger.error("❌ 创建平台默认模型失败: %s", str(e))
@@ -391,14 +395,18 @@ async def get_tenant_model(app, tenant_id: str):
             model=model_name,
             model_provider="openai",
             temperature=0,
-            max_tokens=1024,
-            timeout=30,
-            max_retries=0,
+            max_tokens=MODEL_MAX_TOKENS,
+            timeout=MODEL_TIMEOUT,
+            max_retries=MODEL_MAX_RETRIES,
             api_key=api_key,
             base_url=api_base,
+            stream_chunk_timeout=MODEL_STREAM_CHUNK_TIMEOUT,
         )
         _tenant_model_cache[f"_model_{cache_key}"] = model
-        logger.info("✅ tenant custom model created: [%s] model=%s", tenant_id, model_name)
+        logger.info(
+            "✅ tenant custom model created: [%s] model=%s retries=%d timeout=%ds chunk_timeout=%ds",
+            tenant_id, model_name, MODEL_MAX_RETRIES, MODEL_TIMEOUT, MODEL_STREAM_CHUNK_TIMEOUT,
+        )
         return model
     except Exception as e:
         # logger.error("❌ 创建租户自定义模型失败 [%s]: %s，回退到平台默认模型", tenant_id, str(e))

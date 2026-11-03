@@ -29,6 +29,18 @@ INTERNAL_API_TOKEN = os.getenv("INTERNAL_API_TOKEN", "")
 # 生产环境置为True，屏蔽接口原始异常详情
 PROD_MODE = os.getenv("PROD_MODE", "false").lower() == "true"
 
+# 模型 API 配置
+# - max_retries: ChatOpenAI 对 429/超时/连接错误做指数退避重试（默认 3 次额外重试，共 4 次尝试）
+# - timeout: 单次请求总超时（秒），包括连接、首 token、整个响应。glm-4.5-flash 长对话易超 30s，默认 60
+# - stream_chunk_timeout: SSE 每个 chunk 的间隔超时（秒），流到一半卡住时早发现早重试
+MODEL_MAX_RETRIES = int(os.getenv("MODEL_MAX_RETRIES", "3"))
+MODEL_TIMEOUT = int(os.getenv("MODEL_TIMEOUT", "60"))
+MODEL_STREAM_CHUNK_TIMEOUT = int(os.getenv("MODEL_STREAM_CHUNK_TIMEOUT", "30"))
+# - max_tokens: 模型单次输出上限（token）。glm-4.5-flash 最大输出 96K，客服场景 1024 够了（省钱 + 防冗长）
+MODEL_MAX_TOKENS = int(os.getenv("MODEL_MAX_TOKENS", "1024"))
+# - context_window: 模型最大输入 token。glm-4.5-flash 官方 128K（阿里云百炼部署上限 96K）
+CONTEXT_WINDOW_TOKENS = int(os.getenv("CONTEXT_WINDOW_TOKENS", "131072"))
+
 # ====================== 会话回收配置 ======================
 # 过期天数 / 定时清理间隔(秒, 0=关闭)
 SESSION_RETENTION_DAYS = int(os.getenv("SESSION_RETENTION_DAYS", "7"))
@@ -78,7 +90,6 @@ DEFAULT_SYSTEM_PROMPT = """你是智能客服系统 的智能客服"小Q"。
 ## 行为准则
 - 回答简洁，每次 2-3 句话
 - 不知道的就查询知识库，查不到就诚实告知
-- 如果知识库里没有相关信息，就提示用户转接人工
 - 保持友好亲切的语气
 ## 服务信息
 - 每次回复结尾必须附上一行：智能客服 客服中心 | 工作时间 9:00-18:00"""

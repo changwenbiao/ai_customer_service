@@ -68,14 +68,44 @@ pending_ticket_var: ContextVar[bool] = ContextVar("pending_ticket", default=Fals
 
 
 async def _record_usage_after_chat(request, conn, tenant_id: str, thread_id: str, messages):
-    """对话完成后统一记录 token 用量：模型名/来源/单价一次获取（共享 300s 配置缓存），
-    费用按发生时单价快照（价格调整不影响历史账单）"""
-    in_cache, in_miss, out_price = await current_chat_prices(request.app, tenant_id)
+    """对话完成后统一记录 token 用量（在已有 conn 上跑，best-effort 参数兜底）"""
+    try:
+        in_cache, in_miss, out_price = await current_chat_prices(request.app, tenant_id)
+    except Exception as e:
+        logger.warning("[token-usage] current_chat_prices failed: %s", e)
+        in_cache, in_miss, out_price = 0.0, 0.0, 0.0
+
+    try:
+        fallback_model = await current_model_name(request.app, tenant_id)
+    except Exception as e:
+        logger.warning("[token-usage] current_model_name failed: %s", e)
+        fallback_model = ""
+
+    try:
+        source = await current_model_source(request.app, tenant_id)
+    except Exception as e:
+        logger.warning("[token-usage] current_model_source failed: %s", e)
+        source = "platform"
+
     await record_token_usage(conn, tenant_id, thread_id, messages,
-                             fallback_model=await current_model_name(request.app, tenant_id),
-                             source=await current_model_source(request.app, tenant_id),
+                             fallback_model=fallback_model,
+                             source=source,
                              chat_input_cache_price=in_cache, chat_input_price=in_miss,
                              chat_output_price=out_price)
+
+
+async def _do_record_usage(request, tenant_id: str, thread_id: str, messages) -> None:
+    """token 统计后台任务：自己建连接，完全 best-effort。
+
+    从 event_generator 里用 asyncio.create_task() 拉起，
+    独立于 SSE 请求生命周期——用户断连不影响它。"""
+    try:
+        async with _pool_conn(request.app) as conn:
+            await _record_usage_after_chat(request, conn, tenant_id, thread_id, messages)
+    except Exception as e:
+        logger.warning("[token-usage] _do_record_usage failed: %s", e)
+    except BaseException:
+        logger.exception("[token-usage] _do_record_usage got BaseException (unexpected)")
 
 
 class TraceIdStreamHandler(logging.StreamHandler):
@@ -450,22 +480,31 @@ async def agent_chat_stream(req: ChatRequest, request: Request):
                         full_content += chunk
                         yield f"data: {_json.dumps({'type':'chunk','content':chunk}, ensure_ascii=False)}\n\n"
 
-            # 检查是否有中断（人工接管）
+            # 检查是否有中断（人工接管）+ 拿完整 state 的 messages 做 token 统计
+            full_state_msgs = stream_msgs  # fallback：如果 aget_state 失败就用流式 chunks
             try:
                 state = await agent.aget_state(config)
+                full_state_msgs = state.values.get("messages", stream_msgs)
                 if state.tasks and state.tasks[0].interrupts:
                     is_interrupt = True
                     interrupt_data = state.tasks[0].interrupts[0].value
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("aget_state failed, fallback to stream_msgs for usage: %s", e)
 
             if is_interrupt:
                 yield f"data: {_json.dumps({'type':'interrupt','data':interrupt_data}, ensure_ascii=False)}\n\n"
             else:
                 yield f"data: {_json.dumps({'type':'end','content':full_content}, ensure_ascii=False)}\n\n"
-            # P1-1：记录 token 用量（从流式消息中提取 usage_metadata）
-            async with _pool_conn(request.app) as conn:
-                await _record_usage_after_chat(request, conn, tenant_id, thread_id, stream_msgs)
+
+            # P1-1：记录 token 用量 → 扔后台 task
+            # 原因：SSE yield 完 end 事件后用户可能立刻断连（关页面/刷新），
+            # FastAPI 会向这个 generator 注入 CancelledError，打断任何后续 await。
+            # 用 create_task 脱离当前 generator 的生命周期，让 token 统计稳稳跑完。
+            _bg_msgs = full_state_msgs  # 捕获引用，避免闭包问题
+            try:
+                asyncio.create_task(_do_record_usage(request, tenant_id, thread_id, _bg_msgs))
+            except Exception as e:
+                logger.warning("[token-usage] create_task failed: %s", e)
 
         except Exception as e:
             logger.exception("/agent/chat/stream error")
