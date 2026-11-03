@@ -193,15 +193,20 @@ func HandleUserWS() gin.HandlerFunc {
 							})
 						},
 						// onEnd: 流式结束，推送完整消息并落库
-						func(content string) {
+						func(content string, citations []agent.Citation) {
+							meta := repository.CitationsJSON(citations)
 							if htk, _ := repository.GetHandlingTicket(userID); htk != nil {
-								_ = repository.SaveTicketMessage(userID, "ai", content, "text", htk.ID)
+								_ = repository.SaveTicketAIMessage(userID, content, meta, htk.ID)
 							} else {
-								_ = repository.SaveMessage(userID, "ai", content, "text")
+								_ = repository.SaveAIMessage(userID, content, meta)
 							}
-							ws.WSHub.SendToUser(userID, map[string]interface{}{
+							payload := map[string]interface{}{
 								"type": "chat_end", "msg": content,
-							})
+							}
+							if len(citations) > 0 {
+								payload["citations"] = citations
+							}
+							ws.WSHub.SendToUser(userID, payload)
 						},
 						// onError: Agent业务侧返回SSE error事件，仅这里推送业务错误
 						func(err error) {

@@ -4,9 +4,12 @@ P4-3：Agent 工具函数模块
 采用 app 注入模式：在 main.py 中调用 set_app(app) 注入全局实例。
 """
 import asyncio
+import re
+from contextvars import ContextVar
 
 from langchain_core.tools import tool
 from langgraph.types import interrupt
+from config import ENABLE_CITATION_GUARD, REJECT_REPLY
 
 # Redis 检索缓存暂时关闭：kb_cache_get / kb_cache_set 的调用已注释（重新打开时恢复导入即可）
 from cache import kb_singleflight
@@ -20,6 +23,82 @@ _logger = None
 _tenant_var = None
 _pending_ticket_var = None
 _thread_var = None
+
+# R12：单次请求内累积的引用来源；ContextVar 保证并发请求互不污染
+_citations_var: ContextVar[list[dict]] = ContextVar("kb_citations", default=[])
+
+
+def reset_citations() -> None:
+    """每次 /agent/chat 或 /agent/chat/stream 入口调用一次"""
+    _citations_var.set([])
+
+
+def get_citations() -> list[dict]:
+    """拷贝一份，避免外部修改污染 ContextVar"""
+    return list(_citations_var.get())
+
+
+def _append_citations(pairs: list) -> list[int]:
+    """把本次命中的 (Document, score) 追加进引用列表，返回它们在正文中的编号。
+
+    跨多次 search_kb 调用继续编号（start = 当前已有数量 + 1）。
+    同一 doc_id+page_content 重复命中时去重（保留第一次的编号）。
+    """
+    current = _citations_var.get()
+    seen_keys = {(c["doc_id"], c.get("snippet", "")) for c in current}
+    new_indices = []
+    for doc, score in pairs:
+        meta = doc.metadata or {}
+        key = (meta.get("doc_id", ""), (doc.page_content or "")[:200])
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        idx = len(current) + 1
+        current.append({
+            "index": idx,
+            "doc_id": meta.get("doc_id", ""),
+            "title": meta.get("title", ""),
+            "section": meta.get("section", ""),
+            "snippet": (doc.page_content or "")[:200],
+            "score": round(float(score), 4),
+        })
+        new_indices.append(idx)
+    _citations_var.set(current)
+    return new_indices
+
+
+# R12 Step 5：后置引用校验正则（提取回答里所有 [n] 编号）
+_CITE_RE = re.compile(r"\[(\d+)\]")
+
+
+def citation_guard(answer: str, citations: list[dict]) -> tuple[str, bool]:
+    """L3 后置引用校验。
+
+    返回 (最终回答, 是否被降级为拒答)。降级条件：
+    1. 回答为空 → 拒答
+    2. citations 非空（本轮调用过 search_kb）但回答里没有任何 [n] → 拒答
+    3. 回答里的 [n] 编号超出 citations 范围 → 拒答（编造来源）
+    """
+    if not ENABLE_CITATION_GUARD:
+        return answer, False
+
+    if not answer:
+        return REJECT_REPLY, True
+
+    # 本轮没有检索到任何资料：可能是寒暄、订单查询等非知识库问题 → 放行
+    if not citations:
+        return answer, False
+
+    valid = {c["index"] for c in citations}
+    used = {int(n) for n in _CITE_RE.findall(answer)}
+
+    # 有资料但没有任何引用 → 视为无依据回答
+    if not used:
+        return REJECT_REPLY, True
+    # 引用了不存在的编号 → 视为编造来源
+    if not used.issubset(valid):
+        return REJECT_REPLY, True
+    return answer, False
 
 
 def set_app(app, logger, tenant_var, pending_ticket_var=None, thread_var=None):
@@ -62,6 +141,8 @@ async def _record_kb_hits(tid: str, thread_id: str, query: str, pairs: list) -> 
 @tool
 async def search_kb(query: str) -> str:
     """搜索知识库，获取关于平台、课程、政策等官方信息。
+    检索结果中的每条资料都带编号 [1][2]...，回答时必须在对应结论后标注同样的编号，
+    编号必须来自资料，禁止虚构编号，禁止标注不存在的编号。
     若工具返回"知识库暂未就绪"，说明知识库当前不可用：请如实告知用户"知识库暂时无法访问"，
     不要编造或猜测产品价格、政策、库存等具体信息，并建议用户稍后重试或转接人工客服。
     Args:
@@ -127,7 +208,12 @@ async def search_kb(query: str) -> str:
         if not docs:
             result = "未找到相关信息，建议转接人工客服。"
         else:
-            result = "\n".join(f"- {doc.page_content}" for doc in docs)
+            # ===== R12 命中：编号文本给模型 + 结构化引用给程序 =====
+            nums = _append_citations(pairs)
+            result = "\n\n".join(
+                f"[{n}] {doc.page_content}"
+                for n, (doc, _s) in zip(nums, pairs)
+            )
 
         # KB 闭环：检索结果落库（命中明细含真实分数 / 未命中查询）
         await _record_kb_hits(tid, thread_id, query, pairs)

@@ -1,12 +1,14 @@
 package repository
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
 
 	"customer_service/internal/config"
 	"customer_service/internal/model"
+	"customer_service/internal/pkg/agent"
 	"customer_service/internal/pkg/auth"
 	"customer_service/internal/pkg/ws"
 
@@ -30,6 +32,45 @@ func SaveMessage(threadID, role, content, msgType string) error {
 // SaveTicketMessage 保存一条归属指定工单的会话消息（人工会话专用）
 func SaveTicketMessage(threadID, role, content, msgType string, ticketID uint64) error {
 	return saveMessage(threadID, role, content, msgType, &ticketID)
+}
+
+// SaveAIMessage R12：保存 AI 回答（附带引用来源 JSON），metadata 为空时等价于 SaveMessage
+// 不归属任何工单：用于待处理/未接管期间的 AI 对话
+func SaveAIMessage(threadID, content, metadata string) error {
+	return saveAIMessage(threadID, content, metadata, nil)
+}
+
+// SaveTicketAIMessage R12：保存归属指定工单的 AI 回答（人工会话 AI 回复）
+func SaveTicketAIMessage(threadID, content, metadata string, ticketID uint64) error {
+	return saveAIMessage(threadID, content, metadata, &ticketID)
+}
+
+func saveAIMessage(threadID, content, metadata string, ticketID *uint64) error {
+	if content == "" {
+		return nil
+	}
+	m := model.Message{
+		ThreadID: threadID,
+		Role:     "ai",
+		Content:  content,
+		MsgType:  "text",
+		Metadata: metadata,
+		TicketID: ticketID,
+		IsRead:   0,
+	}
+	if err := config.DB.Create(&m).Error; err != nil {
+		return err
+	}
+	return nil
+}
+
+// CitationsJSON R12：序列化引用来源列表，空时返回空串（避免 "[]" 污染历史）
+func CitationsJSON(cs []agent.Citation) string {
+	if len(cs) == 0 {
+		return ""
+	}
+	b, _ := json.Marshal(cs)
+	return string(b)
 }
 
 func saveMessage(threadID, role, content, msgType string, ticketID *uint64) error {
@@ -114,10 +155,10 @@ func ListMessages(threadID string) ([]model.Message, error) {
 func ListMessagesWithArchive(threadID string) ([]model.MessageWithArchive, error) {
 	var msgs []model.MessageWithArchive
 	err := config.DB.Raw(`
-		SELECT id, thread_id, role, content, msg_type, tenant_id, ticket_id, is_read, created_at, 0 AS archived
+		SELECT id, thread_id, role, content, msg_type, metadata, tenant_id, ticket_id, is_read, created_at, 0 AS archived
 		FROM messages WHERE thread_id = ?
 		UNION ALL
-		SELECT id, thread_id, role, content, msg_type, tenant_id, ticket_id, is_read, created_at, 1 AS archived
+		SELECT id, thread_id, role, content, msg_type, metadata, tenant_id, ticket_id, is_read, created_at, 1 AS archived
 		FROM messages_archive WHERE thread_id = ?
 		ORDER BY created_at ASC, id ASC`, threadID, threadID).
 		Scan(&msgs).Error

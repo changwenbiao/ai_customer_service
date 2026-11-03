@@ -27,6 +27,8 @@ class AgentResp(BaseModel):
     is_interrupt: bool
     interrupt_data: Optional[dict] = None
     content: Optional[str] = None
+    # R12：检索引用来源列表（search_kb 命中时填充，空检索/无工具调用时为空）
+    citations: list[dict] = []
 
 
 class SessionCleanupReq(BaseModel):

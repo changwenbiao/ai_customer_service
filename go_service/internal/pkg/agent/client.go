@@ -19,11 +19,22 @@ type ChatReq struct {
 	HasPendingTicket bool `json:"has_pending_ticket"`
 }
 
+// Citation Agent 回答的引用来源
+type Citation struct {
+	Index   int     `json:"index"`
+	DocID   string  `json:"doc_id"`
+	Title   string  `json:"title"`
+	Section string  `json:"section"`
+	Snippet string  `json:"snippet"`
+	Score   float64 `json:"score"`
+}
+
 type ChatResp struct {
 	Success       bool                   `json:"success"`
 	IsInterrupt   bool                   `json:"is_interrupt"`
 	InterruptData map[string]interface{} `json:"interrupt_data"`
 	Content       string                 `json:"content"`
+	Citations     []Citation             `json:"citations"` // R12：引用来源列表
 }
 
 type ResumeReq struct {
@@ -118,20 +129,21 @@ func CallAgentChat(threadID, msg string, traceId string, hasPending bool) (*Chat
 
 // StreamChunk SSE 流式事件
 type StreamChunk struct {
-	Type    string                 `json:"type"`    // chunk / end / error / interrupt
-	Content string                 `json:"content"` // chunk 或 end 的内容
-	Msg     string                 `json:"msg"`     // error 消息
-	Data    map[string]interface{} `json:"data"`    // interrupt 数据
+	Type      string                 `json:"type"`      // chunk / end / error / interrupt
+	Content   string                 `json:"content"`   // chunk 或 end 的内容
+	Msg       string                 `json:"msg"`       // error 消息
+	Data      map[string]interface{} `json:"data"`      // interrupt 数据
+	Citations []Citation             `json:"citations"` // R12：仅 end / interrupt 事件有值
 }
 
 // CallAgentChatStream P2-1：流式调用 Agent，逐 token 回调
 // onChunk: 每个 token 片段回调
-// onEnd: 流式结束回调，参数为完整内容
+// onEnd: 流式结束回调，参数为完整内容 + 引用来源列表
 // onError: 错误回调
 // onInterrupt: 人工接管中断回调
 // 新增 ctx：上层WS的context，前端断开会自动cancel
 func CallAgentChatStream(ctx context.Context, threadID, msg, traceId string, hasPending bool,
-	onChunk func(string), onEnd func(string),
+	onChunk func(string), onEnd func(string, []Citation),
 	onError func(error), onInterrupt func(map[string]interface{})) error {
 
 	payload := ChatReq{ThreadID: threadID, UserMessage: msg, HasPendingTicket: hasPending}
@@ -196,7 +208,7 @@ func CallAgentChatStream(ctx context.Context, threadID, msg, traceId string, has
 							}
 						case "end":
 							if onEnd != nil {
-								onEnd(chunk.Content)
+								onEnd(chunk.Content, chunk.Citations)
 							}
 							return nil
 						case "error":

@@ -15,7 +15,7 @@
 | **第二篇 · 原理总览** | 指标怎么定义、BM25/RRF/rerank/chunk/阈值为什么这么设计 | 2.3 指标、2.5 BM25、2.6 RRF、2.7 rerank、2.9 阈值、2.12 线上口径对照 |
 | **〇、总览与 SOP** | 五步当前状态 + 从零复现的完整命令 | 〇.1 完整复现 SOP |
 | **第一章 ~ 第五章** | 每一步的具体操作、代码、预期结果与排错 | Step 1 地基 → Step 5 写回 |
-| **附录 A ~ E** | 基线数字、验收清单、FAQ、面试话术、需求衔接 | 附录 D 面试怎么讲（详细版） |
+| **附录 A ~ F** | 基线数字、验收清单、FAQ、面试话术、需求衔接、统一术语 | 附录 D 面试怎么讲（详细版）、附录 F 统一术语表 |
 
 ---
 
@@ -330,7 +330,7 @@ Evidence hit@k = (1/|Q|) · Σ_q 1[ 前 k 个 chunk 中，存在任一 chunk 的
 | 拒答率 | 无答案问题中，回复正确拒答的比例 | 该拒答就拒答 |
 | 泄漏率 | 无答案问题中，回复没有拒答的比例 | 不该答却答了 |
 
-更精细的指标（R12 会补）：引用覆盖率、citation 准确率、faithfulness（回答是否完全由引用支撑）、answer correctness（与 reference 的语义一致）。这些通常用 LLM-as-judge，成本更高，不适合每次回归都跑。
+更精细的指标（R12 会补）：引用覆盖率、citation 准确率、Faithfulness（回答是否完全由引用支撑）、answer correctness（与 reference 的语义一致）。这些通常用 LLM-as-judge，成本更高，不适合每次回归都跑。
 
 #### 2.3.8 指标选择的四条原则
 
@@ -429,30 +429,186 @@ B 胜 A。这就是混合检索想要的性质：**多路共识优于单路极�
 
 ### 2.7 Rerank（cross-encoder 重排）
 
-**双塔 vs 交叉编码器**：
+> 一句话：重排不是"再搜一遍"，而是把 **query 和候选段落拼在一起读一遍**，用一次前向计算判断"这段话到底能不能回答这个问题"。
 
-| 维度 | Bi-encoder（dense 检索） | Cross-encoder（rerank） |
+#### 2.7.1 它解决的是"排序错误"，不是"召回错误"
+
+先回顾 2.3 的指标结论：本项目基线 **Recall@5=1.000，但 Recall@1=0.953**。这句话翻译过来是：
+
+- 正确文档**已经**在前 5 条候选里；
+- 只是它没有排在第 1 位。
+
+这类错误又分两种：
+
+| 错误类型 | 典型例子 | 为什么前面那一步排错 |
 |---|---|---|
-| 输入 | query、passage 分别编码 | `[CLS] query [SEP] passage [SEP]` 拼一起 |
-| 交互 | 最后才点积，无细粒度交互 | 从第一层就做注意力交互 |
-| 表达能力 | 弱，但可离线建索引 | 强，但每条 pair 都要前向 |
-| 速度 | 查询时毫秒级 ANN | CPU 单条 3~5s（本项目实测） |
-| 用途 | 从全库召回 top-N | 只对 top-N 重排 |
+| **关键词干扰** | E002"7天无理由退货的运费由谁承担？"把《运费与配送规则》排到第 1 | 错误文档里"运费"出现频率高，BM25 和向量都被这个词吸走 |
+| **否定/条件丢失** | E059"保修需要提供纸质发票吗？"把《发票与支付规则》排到第 1 | 双塔把整段压成一个向量，"需要"和"无需"的差异被稀释 |
 
-**为什么它更强**：它能判断"保修需要纸质发票吗"与"凭订单号即可，无需纸质发票"之间的**否定关系**；双塔把两段独立编码后，否定词很容易在向量里被稀释。
+这两种错误都不是"没找到"，而是"找到了但顺序不对"。**重排就是专门修顺序的。**
 
-**关键认知：rerank 不能提升召回上限。** 它只在已有候选里重新排序；如果正确段落根本没进 top-N，rerank 无能为力。所以它必须**叠在混合检索之后**（hybrid → top-5 → rerank → top-3），而不是替代召回。
+> 反过来说：如果正确段落根本没进候选池，重排也救不回来。这是重排最重要的边界，后面 2.7.7 会展开。
 
-**成本模型**：cross-encoder 是 O(N) 推理，N 是候选数。本项目 CPU 实测：
+#### 2.7.2 双塔和交叉编码器的结构差异
 
-| 候选数 | 本项目耗时（线上典型） |
+**双塔（bi-encoder，dense 检索用的结构）**：
+
+```text
+query   ──► Encoder_q ──► v_q ─┐
+                               ├── cos(v_q, v_d) ──► 相关性分数
+passage ──► Encoder_d ──► v_d ─┘
+                            ▲
+                            └── 可以离线预计算，建索引时就算好
+```
+
+- query 和 passage **各自独立**过 Transformer；
+- 每一侧最终只留下**一个定长向量**；
+- 两侧的交互只发生在最后一步：点积/余弦；
+- 因此 passage 向量可以离线算好，查询时只算 query 向量 + ANN 检索，速度是毫秒级。
+
+**交叉编码器（cross-encoder，rerank 用的结构）**：
+
+```text
+[CLS] query 的 token ... [SEP] passage 的 token ... [SEP]
+                 │
+                 ▼
+        一个完整的 Transformer
+        （每一层都同时看到 query 和 passage 的 token）
+                 │
+                 ▼
+        [CLS] 位置的向量 ──► 线性层 ──► 一个相关性分数
+```
+
+- query 和 passage **拼成一个序列**，一起送进模型；
+- 从第一层开始，注意力就能在 query 的 token 和 passage 的 token 之间流动；
+- 模型最后只输出**一个标量**：这段 passage 对当前 query 有多相关；
+- 因为 query 每次都变，passage 的表示**不能离线预计算**，每对 `(query, passage)` 都要完整前向一次。
+
+用公式对比：
+
+```text
+双塔:      score(q, d) = cos( f(q), g(d) )
+交叉编码器: score(q, d) = h( [q; d] )
+```
+
+`f`、`g` 是各自独立的编码器，`h` 是一个能看到 q 和 d 全部 token 交互的深层网络。**表达能力差在"交互发生得太晚"**：双塔把整段 passage 压成一个向量后，很多细粒度信息已经丢了。
+
+#### 2.7.3 为什么交叉编码器能看懂"否定"和"数字"
+
+关键在于**注意力可以对齐 token**。举两个本项目的真实 case：
+
+**E059：否定关系**
+
+```text
+query:   保修 需要 提供 纸质 发票 吗
+passage: 凭 订单号 即可 ， 无需 提供 纸质 发票
+```
+
+- 双塔：两段各自压成向量，"发票""纸质"这些高频词占主导，"需要"和"无需"的差异很容易被抹平；
+- 交叉编码器：注意力可以直接把 query 的"需要…吗"和 passage 的"无需"对上，把"纸质发票"和"纸质发票"对上，从而判断这是**否定回答**，相关性分数应该高（因为这段话确实回答了问题），而不是被"发票"这个词带偏。
+
+**E002：数字和主体**
+
+```text
+query:   7 天 无理由 退货 的 运费 由 谁 承担
+passage: 7 天 无理由 退货 的 运费 由 买家 承担
+```
+
+交叉编码器能逐 token 对齐"7 天"、"运费"、"谁 ↔ 买家"、"承担 ↔ 承担"；双塔只能比较两个压缩后的向量，细粒度的"谁承担"很容易被"运费"这个高频主题词盖过。
+
+> 这就是为什么重排模型通常比 embedding 模型小很多，但排序效果更好：**它不需要记住整个知识库，只需要判断"这一对文本是否相关"**。
+
+#### 2.7.4 bge-reranker-v2-m3 具体做了什么
+
+本项目用的是 `BAAI/bge-reranker-v2-m3`：
+
+| 项目 | 说明 |
 |---|---|
-| 5 | 15~20s（线上托管/GPU 对 50 条约 20~150ms） |
-| 10 | 30~50s（线上通常不会用 CPU rerank 10 条） |
+| 模型类型 | cross-encoder（序列分类结构，输出 1 个相关性分数） |
+| 输入 | `[query, passage]` 一对文本，分词后拼成一个序列 |
+| 输出 | 一个浮点数 logit，**越大越相关**；本项目没有做 sigmoid，所以可以是负数 |
+| 语言 | 多语言，中文场景常用 |
+| 体量 | 约 1.2GB，CPU 可跑，GPU 更快 |
+| 本项目用法 | 对候选逐对打分 → 按分数降序 → 截断到 top-k |
 
-所以默认 `RERANK_CANDIDATE_N=5`（线上常见 20~100，常取 50），并且 Go 侧流式对话单独用 180s 超时的 `streamHTTPClient`，否则 rerank + LLM 生成会顶穿 60s。
+几个容易混淆的点：
 
-**工程注意**：同步推理必须放 `asyncio.to_thread`，否则阻塞事件循环；模型在服务启动/镜像构建阶段预加载，不能首次请求懒加载（会超时）。
+1. **它不是"生成模型"**，不产生答案，只产生相关性分数；
+2. **它的分数不是概率**。原始输出是 logit，可以是 `-8.9`，也可以是 `+6.2`；只有显式 `normalize=True` 才会变成 0~1 的 sigmoid 值。本项目保留原始 logit，所以**不能拿它和 dense 的余弦分数直接比较**；
+3. **它是逐对计算的**。5 个候选就是 5 对输入，通常一次 batch 前向；候选越多，耗时线性增长。
+
+#### 2.7.5 在本项目链路中的位置
+
+```text
+dense top-k ─┐
+             ├─► RRF 融合 ─► 取前 RERANK_CANDIDATE_N=5 ─► cross-encoder 逐对打分
+BM25 top-k  ─┘                                                  │
+                                                               ▼
+                                                    按重排分数降序 → 取 RETRIEVER_TOP_K=3
+```
+
+对应代码在 [rerank.py](file:///Users/changwenbiao/PycharmProjects/ai_customer_service/python_agent/rerank.py#L30-L55)，关键动作只有四步：
+
+1. 取前 `candidate_n=5` 条候选；
+2. 拼成 5 个 `[query, content]` 对；
+3. `compute_score(pairs)` 得到 5 个分数；
+4. 用新分数覆盖原分数、降序排序、截断到 `top_k=3`。
+
+这里有一个很重要的设计：**RRF 的分数在重排后会被直接丢弃。** RRF 只负责"谁有资格进候选池"，重排负责"最后谁排第 1"。所以：
+
+- RRF 排错（关键词把错误文档顶到第 1）没关系，只要正确文档还在前 5；
+- 重排可以把它拉回第 1；
+- 但重排**不能**把第 6 名拉进来——它看不到。
+
+#### 2.7.6 为什么候选数是 5，而不是 10 或 50
+
+重排的成本是 **O(N)**：N 是候选数，每对还要做一次完整的 Transformer 前向。本项目 CPU 实测：
+
+| 候选数 | 本项目 CPU 耗时 | 说明 |
+|---|---|---|
+| 5 | 15~20s | 当前默认配置 |
+| 10 | 30~50s | 延迟翻倍，收益很小 |
+
+线上 GPU/托管服务对 50 条候选通常约 20~150ms，所以生产环境常见 `candidate_n=20~100`（常取 50）。但本项目是 CPU 环境，只能取 5。
+
+为什么 5 条够用：
+
+- 基线 **Recall@5=1.000、Evidence hit@5=1.000**，正确证据一定在前 5；
+- 重排只改变顺序，不增加召回；把候选从 5 提到 10，**不会让原本不在前 5 的正确答案变得可见**（它本来就在前 5）；
+- 所以 5 是"覆盖全部正确证据"的最小候选数，再大只是多花钱。
+
+同理，最终只取 `top_k=3`：进入 prompt 的 chunk 越多，token 成本越高，噪声也越多；重排已经把最相关的 3 条放在前面，没必要把 5 条都塞进去。
+
+#### 2.7.7 重排的能力边界
+
+| 边界 | 说明 |
+|---|---|
+| **不能提升召回上限** | 正确段落不在候选池 → 重排无能为力；这是"garbage in, garbage out" |
+| **不能替代分片** | chunk 切得不对，证据被切碎或截断，重排也读不到完整语义 |
+| **不能替代混合检索** | BM25 负责把"字面精确"的候选捞进来，重排只负责排序；两者是接力，不是替代 |
+| **分数不可跨模式比较** | dense 余弦 0~1、RRF 排名倒数、rerank logit 可负，三者量纲不同，阈值不能复用 |
+| **分数高 ≠ 知识库有答案** | 重排分数衡量"这段和问题相关"，不衡量"知识库能否回答"；拒答仍要靠 R12 的引用校验和阈值兜底 |
+| **长文本会截断** | 模型有最大输入长度；证据如果落在 chunk 尾部之外，会被截掉。本项目 chunk 约 200 字，远小于模型上下文，风险较低 |
+
+#### 2.7.8 工程实现上的三个细节
+
+1. **同步推理放线程池**：`compute_score` 是同步 CPU 计算，直接放在异步接口里会阻塞事件循环；本项目用 `asyncio.to_thread` 包一层（见 [tools.py](file:///Users/changwenbiao/PycharmProjects/ai_customer_service/python_agent/tools.py#L186-L188)）。
+2. **模型加载失败要降级**：`get_reranker()` 捕获异常并返回 `None`，此时 `rerank_items` 直接返回原顺序，保证"重排不可用"不会让整个检索挂掉。
+3. **权重预下载 + 进程预热**：镜像构建阶段已经把模型权重下载好（见 `python_agent/Dockerfile`）；但进程内首次调用仍要加载 1.2GB 模型，生产上应在上线后主动打一次预热请求，否则第一个真实用户会承担模型加载时间。
+
+#### 2.7.9 怎么验证重排真的有效
+
+不要直接对比"hybrid"和"hybrid+rerank"的端到端指标就下结论，因为候选池可能变了。正确做法是**固定候选集**：
+
+1. 先用 hybrid 跑出每条 query 的 top-5 候选，保存下来；
+2. 对同一批 top-5 候选做重排；
+3. 只比较 **Recall@1 / MRR**，因为 Recall@3/@5 只是换序，理论上不变；
+4. 同时记录 P50/P95 延迟，判断"提升 0.01 MRR 是否值得多花几秒"；
+5. 单独看 Top-1 未命中清单，确认修掉的是不是那几条排序错误。
+
+本项目的结果符合这个预期：重排后 **Recall@1 提升、MRR 提升，而 Recall@3/@5 保持 1.000**——说明它确实只在"重排序"，没有改变候选集合。
+
+> 一句话总结：**混合检索负责"把正确证据捞进来"，重排负责"把正确证据放到第 1 名"。** 前者决定上限，后者决定用户先看到什么。
 
 ### 2.8 Chunk 策略
 
@@ -467,7 +623,7 @@ B 胜 A。这就是混合检索想要的性质：**多路共识优于单路极�
 
 **本项目采用"递归 + 标题路径"**：`RecursiveCharacterTextSplitter(chunk_size=200, overlap=30)`（线上常见 256~512 tokens、overlap 10~20%）先保证长度可控，再用 `MarkdownHeaderTextSplitter` 按 `#/##` 切段，最后给每个 chunk 前置 `[文档标题 > 小节标题]`。
 
-**为什么 prefix 要在切块之后加**：prefix 不占用 200 字的正文预算；如果先加前缀再切，正文反而被压缩。加上前缀后，8 篇文档从 39 个 chunk 变成 48 个。
+**为什么前缀要在分片之后加**：前缀不占用 200 字的正文预算；如果先加前缀再分片，正文反而被压缩。加上前缀后，8 篇文档从 39 个 chunk 变成 48 个。
 
 **chunk 大小的权衡**：
 
@@ -476,6 +632,95 @@ B 胜 A。这就是混合检索想要的性质：**多路共识优于单路极�
 - 经验：FAQ/规则类文档 150~300 字；overlap 10%~20%；改完必须重跑评测，不能凭感觉。
 
 **评测陷阱**：chunk 变小后，一条证据可能横跨两个 chunk，`Evidence hit` 的子串匹配会失败。如果实验 E 后 Evidence hit 反而下降，先检查是不是"证据被切碎"，而不是急着否定标题路径。
+
+#### 2.8.1 标题路径的优势（细说）
+
+按收益从大到小排：
+
+1. **结构消歧，专治"两段文本几乎一样"的跨文档冲突**
+   E002"7 天无理由退货运费谁承担"：正确 chunk 在《退换货政策 > 二、7 天无理由退货》，干扰 chunk 在《运费与配送规则 > 一、包邮规则》。两段正文都含"运费"，embedding 几乎一样。加前缀后，向量里多了"退换货政策 / 7 天无理由"这组判别信号，才分得开。
+
+2. **用极低成本近似 Contextual Retrieval**
+   chunk 单独看不知道"自己属于哪篇政策、哪一节"；前缀补上这个上下文，效果接近 Anthropic 的 contextual retrieval，但不需要对每个 chunk 调一次 LLM。
+
+3. **稀疏检索同样受益**
+   BM25 会把 `退换货政策`、`7 天无理由` 当作精确词项计入；如果 query 里也出现这些词，sparse 一路会直接加分。是否比单 dense 提升更明显，要以实验 E 叠加 hybrid 的实测结果为准。
+
+4. **不占正文预算**
+   前缀在分片之后加，200 字正文完整保留；如果先加前缀再分片，正文会被压缩到 170~180 字。这是实现顺序上的关键细节。
+
+5. **可解释、可溯源**
+   payload 多了 `section` 字段，badcase 能直接说"错在《退换货政策 > 退款规则》"，R12 的 citation 也能展示"文档 > 小节"，而不是只给一个文档标题。
+
+6. **成本几乎为零**
+   不改 embedding 模型、不引入 GPU、不加在线延迟，只需要重索引一次；代价主要是 chunk 数从 39 涨到 48（+23%）。
+
+7. **对非结构化文档有安全回退**
+   没有 Markdown 标题时回退到原 `RecursiveCharacterTextSplitter`，行为与基线完全一致，不会因为开启开关而把非 Markdown 文档搞坏。
+
+#### 2.8.2 标题路径的劣势与代价（细说）
+
+1. **chunk 数增加，固定 k 的覆盖率被稀释**
+   39 → 48（+23%）。同样的 top-k=3，覆盖的文本比例下降；索引向量数、内存、重索引时间都上升。k 需要跟着实验 A 重新校准。
+
+2. **同节内重复前缀，抬高同节 chunk 的相似度**
+   一个长小节被切成 3 个 chunk，三个都带同一个 `[文档 > 小节]` 前缀，彼此更相似，可能一起挤进 top-k，挤掉另一节的正确证据。**同节冗余**是标题路径最典型的副作用，靠 rerank 或 MMR 去冗余缓解。
+
+3. **前缀带来额外 token 开销**
+   前缀约 15~30 字，对 200 字 chunk 是 8%~15% 的文本增量；embedding API 的字数/费用、索引体积都略涨。chunk 越大，前缀占比越低，但收益也越弱。
+
+4. **强依赖标题质量**
+   标题缺失、重复、或写成"常见问题 / 其他 / 补充说明"这类无信息词，前缀不但不消歧，反而制造噪声。源文档必须维护规范的 `#/##` 层级。
+
+5. **标题粒度可能和 query 不匹配**
+   标题太宽（"售后规则"）判别力弱；太窄（"Q3 特殊条款"）又可能过拟合。理想标题应包含用户会说的词（退换货、运费、保修、发票），而不是内部编号。
+
+6. **可能放大"文档级先验"，引入新的误召回**
+   用户问"运费"，所有带 `运费与配送规则` 前缀的 chunk 都更容易被召回，其中不少和具体问题无关。标题路径提升的是"文档/小节路由"，不保证"段落里真有答案"，仍需 Evidence hit 和 rerank 兜底。
+
+7. **变更成本高**
+   改前缀意味着所有 chunk 的 `page_content`、chunk id、offset 都变：必须重索引、清检索缓存、重跑全部实验；如果有 chunk 级 gold 标注，也会全部失效。
+
+8. **对无标题 / 扫描 PDF 无效**
+   回退逻辑保证不出错，但也保证没有收益；这类文档要靠 OCR + 版面解析，或 LLM contextual retrieval 补上下文。
+
+9. **评测口径要小心**
+   `Evidence hit` 是归一化子串匹配，前缀通常不影响判据；但 `e2e` 生成评测里模型会看到前缀，答案措辞可能变化。**只能在同口径下横向比较**，不能拿"加前缀的 e2e"直接对比"不加前缀的 retrieval"。
+
+10. **标题词在 BM25 里可能被过度奖励**
+    同一个标题词在该文档的每个 chunk 都出现，`df` 被放大，IDF 相对其他词会被稀释；短期内对"文档路由"有利，语料扩大后要重新看这个词的权重是否还合理。
+
+#### 2.8.3 它到底服务于哪一步？
+
+一句话：**它物理上发生在 Step 1 的索引期，实验上属于 Step 4 的实验 E，最后在 Step 5 固化成开关；直接服务的是 chunk 级召回/排序指标，不服务生成质量。**
+
+| 阶段 | 关系 | 具体说明 |
+|---|---|---|
+| **Step 1 知识库地基** | 物理发生地 | `kb_index_worker.py` 在导入/重建时决定 chunk 是否带前缀；`kb_import.py` 触发重索引 |
+| **Step 4 实验 E** | 实验归属 | A/B/C/D 改的是"检索期参数"（k、阈值、融合、rerank）；E 是唯一改"索引结构"的变量，必须重索引，所以放在五组实验的最后 |
+| **Step 5 配置写回** | 固化开关 | `ENABLE_CHUNK_TITLE_PREFIX=true/false`，默认开启；关闭即回到基线分片，可随时回滚 |
+| **R11 指标** | 服务对象 | 直接服务 `Recall@1`、`MRR`、`Evidence hit@k`（尤其是跨文档边界模糊的 E002/E023/E071） |
+| **R12 溯源** | 下游收益 | `section` 元数据为 citation 展示"文档 > 小节"提供了数据基础（前端最终展示格式由 R12 Step 4 决定） |
+| **R13 上下文预算** | 下游收益 | 可按 `[文档 > 小节]` 分组、去重、裁剪，而不是把整篇文档塞进 prompt |
+
+**它不服务的对象**：不是 R12 的拒答策略本身，也不是 R12 的生成/引用校验。标题路径只改变"检索到的 chunk 长什么样、排得准不准"，**回答是否 grounded 仍由 R12 的 prompt + 后置校验负责**。
+
+#### 2.8.4 和 LLM Contextual Retrieval 的区别
+
+| 维度 | 标题路径（本项目） | LLM Contextual Retrieval |
+|---|---|---|
+| 上下文来源 | 文档已有的标题层级 | 对每个 chunk 调 LLM 生成摘要式上下文 |
+| 索引成本 | 0 次 LLM 调用 | 每 chunk 1 次 LLM，语料大时很贵 |
+| 适用文档 | 有规范 Markdown 标题 | 无结构、扫描件、口语化文档 |
+| 主要风险 | 标题质量差 / 同节冗余 | LLM 幻觉、成本、索引延迟 |
+| 本项目选择 | ✅ 8 篇文档全部是规范 Markdown，标题路径性价比最高 | 暂不引入 |
+
+#### 2.8.5 什么时候不该用
+
+- 文档没有稳定标题层级，或标题是"常见问题 / 其他 / 补充"这类无信息词；
+- chunk 已经很大（接近 512 tokens），前缀占比低、收益也低，还增加索引体积；
+- 实验 E 显示 `Evidence hit@3` 下降：优先怀疑"证据被切碎 / 同节 chunk 挤占 top-k"，先调 `chunk_size`、overlap 或按小节再细分，再决定是否关闭；
+- **不能只看 chunk 数变多就认为变好**——必须用同一套评测集对比 `Recall@1 / MRR / Evidence hit@3`，并且一次只改这一个变量。
 
 ### 2.9 阈值与拒答：为什么"单靠分数"不行
 
@@ -549,19 +794,19 @@ T_total ≈ T_query理解 + T_embedding + T_qdrant + T_rerank + T_llm首token + 
 | overlap | 30 字符 ≈15%（线上 10~20%） | 与业界一致 |
 | 评测集规模 | 100 条（线上起步 50~100；CI 回归 20~50；周期基准数百~数千；公开基准 MIRAGE 7,560 QA） | 本项目够看趋势，不够做统计显著性 |
 | 一阶段候选池 | dense/sparse 各 20（线上第一阶段 Recall@100/200，prefetch 50~200/路） | 本项目候选池小，重排可选空间有限 |
-| 进 LLM 的 top-k | 3（线上 5~10） | 本项目 k 小，噪声少但漏答风险更高 |
+| 进 LLM 的 top-k | 3（线上 5~10） | 本项目 k 小，噪声少但漏召回风险更高 |
 | rerank 候选数 | 5（线上 20~100，常见 50） | 本项目受 CPU 延迟限制；线上用 GPU/托管 rerank |
 | rerank 延迟 | CPU 单条 3~5s、5 条约 15~20s（线上托管/GPU 对 50 条约 20~150ms） | 差 2~3 个数量级，是本项目不能放大候选的主因 |
 | 检索延迟 | 未系统压测（线上检索 P95 经验目标 300ms~1s，不含 LLM 生成） | 压测与容量评估留给 R20 |
-| 核心检索指标 | DocRecall@1/3/5（线上第一阶段看 Recall@100/200；重排后看 nDCG@10 / MRR@10） | 本项目语料小，只能看 @1/@3/@5 |
-| 排序指标 | DocMRR（线上 MRR@10 / nDCG@10） | 本项目是文档级 MRR，不精确到段落 |
-| 段落级指标 | Evidence hit@3/5（线上 Context Recall / chunk-level Recall@k，RAGAS Context Recall 经验目标 ≥0.9） | 本项目用子串匹配，线上用 LLM judge 或人工 span 标注 |
+| 核心检索指标 | Recall@1/3/5（文档级；线上第一阶段看 Recall@100/200，重排后看 nDCG@10 / MRR@10） | 本项目语料小，只能看 @1/@3/@5 |
+| 排序指标 | MRR（文档级；线上 MRR@10 / nDCG@10） | 本项目只到文档级，不精确到段落 |
+| chunk 级指标 | Evidence hit@3/5（线上 Context Recall / chunk-level Recall@k，RAGAS Context Recall 经验目标 ≥0.9） | 本项目用子串匹配，线上用 LLM-as-judge 或人工 span 标注 |
 | 阈值分析 | 准确率/误拒率/泄漏率网格扫描（线上 AUC/PR-AUC + 业务加权的误拒/泄漏成本） | 本项目只做单阈值网格；线上会画 PR 曲线 |
-| 生成指标 | must_contain 命中/拒答/泄漏（线上 Answer Correctness、Faithfulness、Context Precision；经验目标 faithfulness ≥0.95、context precision ≥0.75） | 本项目用关键词，线上用 LLM-as-judge |
+| 生成指标 | must_contain 命中/拒答/泄漏（线上 Answer Correctness、Faithfulness、Context Precision；经验目标 Faithfulness ≥0.95、Context Precision ≥0.75） | 本项目用关键词，线上用 LLM-as-judge |
 | 租户规模 | 单租户 `t_demo`（线上多租户 10²~10⁴） | 多租户需要隔离 collection 或过滤条件 |
 | 流量 | 离线批量 100 条（线上 10~10³ QPS，需要限流与压测） | 对应 R20 |
 
-**一句话总结**：本项目的指标口径是"小语料、可解释、可回归"，线上是"大语料、分级相关性、LLM judge、业务成本加权"。**不要把本项目的绝对数字当成线上水位**，要迁移的是方法论和指标分层。
+**一句话总结**：本项目的指标口径是"小语料、可解释、可回归"，线上是"大语料、分级相关性、LLM-as-judge、业务成本加权"。**不要把本项目的绝对数字当成线上水位**，要迁移的是方法论和指标分层。
 
 #### 2.12.1 参考来源
 
@@ -618,7 +863,7 @@ curl -s -X POST http://localhost:8080/api/auth/token \
 python3 python_agent/R11/kb_import.py
 ```
 
-预期：`8 篇文档，共 48 个 chunk`（标题路径前缀默认开启）；若输出 39，说明 `ENABLE_CHUNK_TITLE_PREFIX=false` 或 worker 没重建。
+预期：`8 篇文档，共 48 个 chunk`（标题路径默认开启）；若输出 39，说明 `ENABLE_CHUNK_TITLE_PREFIX=false` 或 worker 没重建。
 
 #### 第 2 步：跑基线（dense，k=5）
 
@@ -788,7 +1033,7 @@ R11 立项前的痛点（也是面试官的第一个问题）：
 | 07 | [07-订单与账号规则.md](file:///Users/changwenbiao/PycharmProjects/ai_customer_service/python_agent/R11/kb_docs/07-订单与账号规则.md) | 订单与账号规则 | 订单账号 | 订单状态、取消、改地址、拆单、账号安全 |
 | 08 | [08-服务承诺与转人工规则.md](file:///Users/changwenbiao/PycharmProjects/ai_customer_service/python_agent/R11/kb_docs/08-服务承诺与转人工规则.md) | 服务承诺与转人工规则 | 服务规范 | 服务时间、响应时效、AI 能力边界、转人工条件、赔付标准 |
 
-当前实际入库：**8 篇文档、39 个 chunk**（基线分片；实验 E 标题路径前缀开启后为 48 个，见 4.5.3。`chunk_count` 来自 `kb_documents` 表）。
+当前实际入库：**8 篇文档、39 个 chunk**（基线分片；实验 E 标题路径开启后为 48 个，见 4.5.3。`chunk_count` 来自 `kb_documents` 表）。
 
 #### 1.2.4 一篇"好用"的 KB 文档长什么样
 
@@ -972,7 +1217,7 @@ python3 python_agent/R11/kb_import.py
 完成：8 篇文档，共 39 个 chunk
 ```
 
-> 上面是关闭标题路径前缀（基线分片）时的实测输出；实验 E 默认开启后为 **48 个 chunk**，详见 4.5.3。
+> 上面是关闭标题路径（基线分片）时的实测输出；实验 E 默认开启后为 **48 个 chunk**，详见 4.5.3。
 
 ### 2.3 常用参数
 
@@ -1287,7 +1532,7 @@ python3 python_agent/R11/run_eval.py --k 8 --retrieval-mode dense --report docs/
 
 #### 4.1.3 怎么看结果
 
-**先搞清楚一个关键事实**：k 不影响排名（第 1 名永远是第 1 名），只影响「能看到多少名」。由 [run_eval.py L213-215](file:///Users/changwenbiao/PycharmProjects/ai_customer_service/python_agent/R11/run_eval.py#L213-L215) 的切片逻辑 `items[:kk]` 可推导出：
+**先搞清楚一个关键事实**：k 不影响排名（第 1 名永远是第 1 名），只影响「能看到多少名」。由 [run_eval.py L213-215](file:///Users/changwenbiao/PycharmProjects/ai_customer_service/python_agent/R11/run_eval.py#L213-L215) 的截断逻辑 `items[:kk]` 可推导出：
 
 | 指标 | k=3 | k=5 | k=8 | 是否随 k 变化 |
 |---|---|---|---|---|
@@ -1312,7 +1557,7 @@ python3 python_agent/R11/run_eval.py --k 8 --retrieval-mode dense --report docs/
 - 如果差值明显 > 0（如基线的 +0.012）→ 说明有正确段落排在 4-5 名，k=3 会漏掉，是否提 k 取决于这部分损失能否接受
 - 想验证 k=5 是否饱和，跑 `--k 8` 并扩展脚本计算 Evidence hit@8；如果 @8 不再提升，k=5 就是上界
 
-**基线结论**：文档级 k=3 完全够用；chunk 级 k=3 会漏约 1 条正确段落（0.988 → 1.000）。生产上 k=3 还是 k=5，是「省 token」和「多 1.2% 证据命中」的权衡。
+**基线结论**：文档级 k=3 完全够用；chunk 级 k=3 会漏约 1 条正确段落（0.988 → 1.000）。生产上 k=3 还是 k=5，是「省 token」和「多 1.2% 的 Evidence hit」的权衡。
 
 #### 4.1.4 踩坑
 
@@ -1897,7 +2142,7 @@ time curl -X POST http://localhost:8080/api/admin/kb/test-query \
 
 ---
 
-### 4.5 实验 E：Chunk 策略（标题路径前缀）
+### 4.5 实验 E：Chunk 策略（标题路径）
 
 #### 4.5.1 解决什么问题
 
@@ -1962,7 +2207,7 @@ time curl -X POST http://localhost:8080/api/admin/kb/test-query \
 5. **配置开关**（[config.py](file:///Users/changwenbiao/PycharmProjects/ai_customer_service/python_agent/config.py#L37-L42) + `.env`）：
 
    ```python
-   # 分片策略（实验 E：标题路径前缀）：是否给每个 chunk 前置「文档标题 > 小节标题」路径
+   # 分片策略（实验 E：标题路径）：是否给每个 chunk 前置「文档标题 > 小节标题」路径
    # 改这个开关必须重新导入知识库（kb_import.py）才会生效，因为分片是索引期动作。
    ENABLE_CHUNK_TITLE_PREFIX = os.getenv("ENABLE_CHUNK_TITLE_PREFIX", "true").lower() == "true"
    ```
@@ -1974,7 +2219,7 @@ time curl -X POST http://localhost:8080/api/admin/kb/test-query \
 
    **默认开启**；做 A/B 对比时改成 `false` 即回退基线分片。
 
-   > **为什么前缀在切块之后加**：prefix 不占用 `chunk_size=200` 的正文预算，只让最终参与 embedding/BM25 的文本多十几到几十字。如果先加前缀再切分，正文反而会被压缩。
+   > **为什么前缀要在分片之后加**：前缀不占用 `chunk_size=200` 的正文预算，只让最终参与 embedding/BM25 的文本多十几到几十字。如果先加前缀再切分，正文反而会被压缩。
 
 **实测分片数**（8 篇源文档，2026-11-03 本地验证）：基线 39 个 chunk → 标题路径 48 个 chunk。
 
@@ -2089,7 +2334,7 @@ time curl -X POST http://localhost:8080/api/admin/kb/test-query \
 - [ ] 实验 B：确认阈值无法可靠拒答，输出给 R12 的结论
 - [ ] 实验 C：实现 BM25+RRF 混合检索，`test-query mode=hybrid` 可用，Recall@1 或 MRR 有可解释提升
 - [x] 实验 D（可选）：实现 bge-reranker-v2-m3 重排，`test-query mode=rerank` 可用，`search_kb` 支持 `ENABLE_RERANK` 开关（待跑评测记录 MRR 提升与延迟成本）
-- [x] 实验 E：实现标题路径前缀 chunk（`split_chunks_with_title_prefix` + `ENABLE_CHUNK_TITLE_PREFIX` 开关，默认开启），重索引后待跑评测填指标
+- [x] 实验 E：实现标题路径分片（`split_chunks_with_title_prefix` + `ENABLE_CHUNK_TITLE_PREFIX` 开关，默认开启），重索引后待跑评测填指标
 - [ ] 填好 4.6 的对比表，选出生产配置（建议 hybrid + rerank + 标题路径）
 - [ ] 延迟数据一并记录（P50 / P95）
 
@@ -2102,8 +2347,8 @@ time curl -X POST http://localhost:8080/api/admin/kb/test-query \
 - [Hybrid Search Strategies 综合指南](https://enricopiovano.com/blog/hybrid-search-strategies-comprehensive-guide/) — RRF k=60 的经验值与调参建议
 - [Hybrid Retrieval for Hallucination Mitigation (arXiv)](https://arxiv.org/pdf/2504.05324) — 动态权重 RRF 对幻觉的抑制实验
 - [BGE Reranker 官方教程](https://bge-model.com/tutorial/5_Reranking/5.1.html) — bge-reranker-v2-m3 用法
-- [Structure-Aware Semantic Chunking with Title-Chain Prefixes](https://arxiv.org/html/2608.00824) — 标题路径前缀对 chunk 检索的提升实验
-- [得物 RAG Chunking 策略实战](https://cloud.tencent.com/developer/article/2582766) — 结构感知分块的工程实践
+- [Structure-Aware Semantic Chunking with Title-Chain Prefixes](https://arxiv.org/html/2608.00824) — 标题路径对 chunk 检索的提升实验
+- [得物 RAG Chunking 策略实战](https://cloud.tencent.com/developer/article/2582766) — 结构感知分片的工程实践
 
 ---
 
@@ -2226,7 +2471,7 @@ time curl -X POST http://localhost:8080/api/admin/kb/test-query \
 1. **建地基**：8 篇多域 KB 源文件放仓库（可 diff、可重建），配 manifest；100 条评测集，85 条有答案 + 15 条无答案，用文档标题而不是 `doc_id` 做锚点，保证重导后评测仍可复用。
 2. **分层指标**：文档级 Recall@1/3/5、MRR；chunk 级 Evidence hit@k；再加无答案分数分布与阈值扫描。这样能判断"是没召回、排错了、还是生成没用对"。
 3. **归因**：基线 Recall@1 0.953、MRR 0.975、Evidence hit@3 0.988，但 Recall@5 已 1.0——说明召回不是瓶颈，瓶颈在排序和 chunk 粒度。
-4. **优化**：加 BM25 稀疏检索，用 RRF（k=60）和 dense 融合；再叠 bge-reranker-v2-m3 对 top-5 重排；分片改成标题路径前缀，让 embedding 带上文档结构。
+4. **优化**：加 BM25 稀疏检索，用 RRF（k=60）和 dense 融合；再叠 bge-reranker-v2-m3 对 top-5 重排；分片改成标题路径，让 embedding 带上文档结构。
 5. **验证**：每次只改一个变量，在同一套评测集跑；记录 P50/P95，延迟超基线 2 倍就不上线。
 
 **R 结果**：混合检索把 Evidence hit@3 从 0.988 提到 1.0、MRR 0.975→0.976；rerank 进一步改善 Top-1；更重要的产出是**阈值扫描证明最优阈值仍有 60% 泄漏**，直接推动 R12 做意图闸门和引用校验。
@@ -2240,7 +2485,7 @@ time curl -X POST http://localhost:8080/api/admin/kb/test-query \
 | 评测怎么做 | 评测集设计 → 指标分层 → 误差归因 | 标题锚点、正负样本、Evidence hit、四象限 |
 | 检索怎么优化 | dense 局限 → BM25 补位 → RRF 融合 | E059 案例、RRF 不用归一化、k=60 |
 | 排序怎么优化 | bi-encoder vs cross-encoder → 候选数/延迟 | rerank 不提升召回、top-5 折中、180s 超时 |
-| 分片怎么优化 | 固定/递归/结构感知 → 标题路径 | 39→48 chunk、prefix 不占正文预算、证据跨 chunk 风险 |
+| 分片怎么优化 | 固定/递归/结构感知 → 标题路径 | 39→48 chunk、前缀不占正文预算、证据跨 chunk 风险 |
 | 线上怎么落地 | 配置开关 → 灰度 → 回归 | 一次只改一个变量、P95 2 倍原则、重索引纪律 |
 
 ### D.4 数字口径表（防追问，必须背熟）
@@ -2271,7 +2516,7 @@ time curl -X POST http://localhost:8080/api/admin/kb/test-query \
 
 | 追问 | 回答 | 加分点 / 坑 |
 |---|---|---|
-| 为什么不用 RAGAS？ | 当前先做 retrieval 层的确定性指标（不花 LLM 钱、可秒级回归）；RAGAS 偏生成侧、需 LLM judge，成本和波动都更高，放到 R12 的引用/faithfulness 校验再用 | 体现"分层评测、按成本选工具" |
+| 为什么不用 RAGAS？ | 当前先做 retrieval 层的确定性指标（不花 LLM 钱、可秒级回归）；RAGAS 偏生成侧、需 LLM-as-judge，成本和波动都更高，放到 R12 的引用 / Faithfulness 校验再用 | 体现"分层评测、按成本选工具" |
 | 评测集怎么防止过拟合？ | 冻结主集 + 留 holdout + 线上 bad case 定期回流；单次提升 <0.01 不当真 | 主动承认小语料局限 |
 | 100 条够吗？ | 起步够用；每个业务域 ≥8 条 + 15 条负样本；低于 50 条波动大于收益 | 说清"够用"的边界 |
 | 为什么用标题不用 doc_id？ | `doc_id` 是上传生成的 uuid，重导必变；标题是稳定业务锚点，运行时解析成当前 doc_id | 这是"可回归"的关键设计 |
@@ -2346,3 +2591,43 @@ time curl -X POST http://localhost:8080/api/admin/kb/test-query \
 - **R12 答案溯源与拒答**：附录 A.4 证明了"阈值不可靠"，R12 要在 `search_kb` 结构化返回（带 `score`/`doc_id`）后做拒答与引用。
 - **R13 上下文预算**：检索片段数量与长度直接影响 token，Step 4 的 `k` 实验要为 R13 提供"取几条最划算"的依据。
 - **R16 评测门禁**：本评测集就是门禁的执行体，改 prompt 前后跑同一套题。
+
+---
+
+## 附录 F：统一术语表（R11 / R12 / 需求清单共用）
+
+> 三份文档里，同一个技术点只用一个名字：首次出现时括注英文，之后不再换叫法。
+> 面试或写文档时，优先用"统一术语"这一列；"不要再用"这一列是容易说混、或被追问时暴露概念不清的叫法。
+
+| 统一术语 | 英文 | 本项目口径 | 不要再用 |
+|---|---|---|---|
+| **分片**（chunk） | chunk / chunking | 索引期把文档切成的最小检索单元；本项目一个 chunk = 200 字正文 + `[文档 > 小节]` 前缀 | 切块、切片、分块 |
+| **标题路径** | Title-Chain Prefix | 给每个 chunk 前置 `[文档标题 > 小节标题]`，让向量/BM25 带上结构信息；是 Contextual Retrieval 的零 LLM 实现 | 标题路径前缀、标题链 |
+| **稠密检索**（dense） | dense retrieval / bi-encoder | 双塔分别编码 query 与 passage，走 ANN 的语义检索；改造前的"单路向量检索"就是它 | 把 dense 泛称"向量检索"（描述历史实现时可以保留） |
+| **稀疏检索**（BM25） | sparse retrieval / BM25 | 词频统计的精确词项检索；中文必须先过 jieba 分词 | 稀疏向量（只在指 Qdrant 向量字段时使用） |
+| **混合检索**（hybrid） | hybrid search | dense + sparse 双路召回后再融合 | 混合搜索 |
+| **RRF** | Reciprocal Rank Fusion | 按 `Σ 1/(k + rank)` 融合多路结果，`k=60`；不看原始分数，只看名次 | 倒数排名融合（首次定义时可括注一次） |
+| **重排**（rerank） | rerank / cross-encoder | 对已召回的候选重新打分；只改排序，不改召回上限 | 精排、重排序 |
+| **cross-encoder** | cross-encoder | 把 query 与 passage 拼成一条输入一起编码，能做词级交互 | 交叉编码器（首次定义时可括注一次） |
+| **第一阶段召回** | first-stage retrieval | 从全库取出 top-N 候选（本项目 dense/sparse 各 20） | 粗排（本项目没有独立的粗排模型） |
+| **截断（top-k）** | top-k truncation | 把排序后的候选截成 k 条送进 prompt（本项目 k=3） | 切片、过滤（"过滤"专指阈值） |
+| **Recall@k** | Recall@k | 前 k 条里是否出现期望文档；本项目是**文档级**二值命中（严格说是 DocRecall@k） | 召回率（口语可用，报告里统一 Recall@k） |
+| **MRR** | Mean Reciprocal Rank | 首个相关结果名次倒数的平均值；本项目是**文档级** MRR | 平均倒数排名（首次定义时可括注一次） |
+| **Evidence hit@k** | Evidence hit@k | 前 k 个 chunk 中是否有任一正文包含 `evidence_terms`，本项目自定义的 **chunk 级**指标 | 证据命中、段落级命中 |
+| **评测集** | eval set / benchmark | 固定的 query + 期望文档 + 判据集合（本项目 100 条，85 正 / 15 负） | 测试集、评估集 |
+| **引用**（citation） | citation | 回答正文里的 `[n]`，与程序维护的 chunk→编号映射一一对应 | 出处、来源标注（口语可，文档统一用引用） |
+| **溯源** | traceability | 从回答的每个事实回查到原文片段的能力；引用（citation）是它的实现手段 | 把"溯源"当成"引用"本身 |
+| **有据生成**（grounding） | grounding / grounded | 回答内容由检索资料支撑；量化指标是 RAGAS 的 Faithfulness | 把 groundedness 当指标名 |
+| **拒答**（abstention） | abstention | 资料不足时明确说"不知道 / 查不到"，并引导转人工 | Abstention 作中文标题、弃答、拒绝回答 |
+| **误拒** | false reject | 有答案却拒答；本项目经验上限 ≤5% | 错拒、过度拒答 |
+| **泄漏** | leak | 无答案却硬答；与"漏召回"是两回事 | 漏答（极易和漏召回混淆） |
+| **LLM-as-judge** | LLM-as-judge | 用 LLM 按 rubric 打分做离线评测，成本高、有波动 | LLM judge（口语可，文档统一用 LLM-as-judge） |
+
+**必须分清的四组概念（面试最容易被追问）**
+
+| 容易混的两组 | 区别 | 一句话说法 |
+|---|---|---|
+| 召回 vs 排序 vs 截断 vs 生成 | 召回决定"有没有"（Recall@N）；排序决定"早不早"（MRR / nDCG）；截断决定"进不进 prompt"（top-k / Evidence hit@k）；生成决定"用不用对"（Faithfulness / 拒答） | "先看有没有，再看排得准不准，最后看模型用没用对。" |
+| 误拒 vs 泄漏 | 误拒是有答案被挡住（代价是转人工）；泄漏是无答案硬答（代价是赔付/合规） | "拒答是风控，不是体验；两者必须成对看。" |
+| 溯源 vs 有据生成 | 溯源是"能点开看到原文"（citation 提供证据链）；有据生成是"回答内容真由原文支撑"（Faithfulness 度量） | "有引用不等于有依据，引用只是可校验的下限。" |
+| grounding（概念） vs Faithfulness（指标） | grounding 是机制，Faithfulness 是 RAGAS 对这个机制的 0~1 打分 | "grounding 是说做法，Faithfulness 是说分数。" |

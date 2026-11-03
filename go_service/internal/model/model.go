@@ -18,21 +18,21 @@ type Order struct {
 }
 
 type Ticket struct {
-	ID          uint64         `gorm:"primaryKey" json:"id"`
-	ThreadID    string         `gorm:"column:thread_id;size:255;index:idx_ticket_thread_status,priority:1" json:"thread_id"`
-	TicketNo    string         `gorm:"column:ticket_no;size:64;unique" json:"ticket_no"`
-	UserID      string         `gorm:"column:user_id;size:255" json:"user_id"`
-	Reason      string         `gorm:"column:reason;type:text" json:"reason"`
-	Status      int            `gorm:"column:status;type:tinyint(1);index:idx_ticket_thread_status,priority:2" json:"status"` //0待处理 1已转接/人工接管中 2已取消 3已关闭
-	Priority    int                  `gorm:"column:priority;type:tinyint(1);default:1" json:"priority"` // 0=低，1=中，2=高，3=紧急
-	TenantID    string               `gorm:"column:tenant_id;size:64;index" json:"tenant_id"`
-	HandlerUID  uint64               `gorm:"column:handler_uid;default:0" json:"handler_uid"`   // 接管客服子账号ID（0=app_key管理员）
-	HandlerName string               `gorm:"column:handler_name;size:64" json:"handler_name"`   // 接管客服名（冗余快照，改名不影响历史工单）
-	ClosedAt      *time.Time           `gorm:"column:closed_at" json:"closed_at,omitempty"`             // 关闭/取消时刻：工单详情消息窗口上界
-	SlaRemindedAt *time.Time           `gorm:"column:sla_reminded_at" json:"sla_reminded_at,omitempty"` // SLA超时提醒时刻（NULL=未提醒）
-	CreatedAt     time.Time      `gorm:"column:created_at" json:"created_at"`
-	UnreadCount int64          `gorm:"-" json:"unread_count"` // 未读消息数，不映射到数据库
-	DeletedAt   soft_delete.DeletedAt `gorm:"column:deleted_at;index" json:"-"` // 软删除
+	ID            uint64                `gorm:"primaryKey" json:"id"`
+	ThreadID      string                `gorm:"column:thread_id;size:255;index:idx_ticket_thread_status,priority:1" json:"thread_id"`
+	TicketNo      string                `gorm:"column:ticket_no;size:64;unique" json:"ticket_no"`
+	UserID        string                `gorm:"column:user_id;size:255" json:"user_id"`
+	Reason        string                `gorm:"column:reason;type:text" json:"reason"`
+	Status        int                   `gorm:"column:status;type:tinyint(1);index:idx_ticket_thread_status,priority:2" json:"status"` //0待处理 1已转接/人工接管中 2已取消 3已关闭
+	Priority      int                   `gorm:"column:priority;type:tinyint(1);default:1" json:"priority"`                             // 0=低，1=中，2=高，3=紧急
+	TenantID      string                `gorm:"column:tenant_id;size:64;index" json:"tenant_id"`
+	HandlerUID    uint64                `gorm:"column:handler_uid;default:0" json:"handler_uid"`         // 接管客服子账号ID（0=app_key管理员）
+	HandlerName   string                `gorm:"column:handler_name;size:64" json:"handler_name"`         // 接管客服名（冗余快照，改名不影响历史工单）
+	ClosedAt      *time.Time            `gorm:"column:closed_at" json:"closed_at,omitempty"`             // 关闭/取消时刻：工单详情消息窗口上界
+	SlaRemindedAt *time.Time            `gorm:"column:sla_reminded_at" json:"sla_reminded_at,omitempty"` // SLA超时提醒时刻（NULL=未提醒）
+	CreatedAt     time.Time             `gorm:"column:created_at" json:"created_at"`
+	UnreadCount   int64                 `gorm:"-" json:"unread_count"`            // 未读消息数，不映射到数据库
+	DeletedAt     soft_delete.DeletedAt `gorm:"column:deleted_at;index" json:"-"` // 软删除
 }
 
 // TicketLog 工单操作历史
@@ -68,8 +68,9 @@ type Message struct {
 	Role      string    `gorm:"column:role;size:16" json:"role"` // user / ai / human / system
 	Content   string    `gorm:"column:content;type:text" json:"content"`
 	MsgType   string    `gorm:"column:msg_type;size:16;default:text" json:"msg_type"` // text / image
+	Metadata  string    `gorm:"column:metadata;type:json" json:"metadata,omitempty"`  // R12：AI 回答引用来源 JSON
 	TenantID  string    `gorm:"column:tenant_id;size:64;index" json:"tenant_id"`
-	TicketID  *uint64   `gorm:"column:ticket_id;index" json:"ticket_id,omitempty"` // 归属工单ID，NULL=不归属
+	TicketID  *uint64   `gorm:"column:ticket_id;index" json:"ticket_id,omitempty"`       // 归属工单ID，NULL=不归属
 	IsRead    int       `gorm:"column:is_read;type:tinyint(1);default:0" json:"is_read"` // 0=未读，1=已读
 	CreatedAt time.Time `gorm:"column:created_at" json:"created_at"`
 }
@@ -81,6 +82,7 @@ type ArchivedMessage struct {
 	Role       string    `gorm:"column:role;size:16" json:"role"`
 	Content    string    `gorm:"column:content;type:text" json:"content"`
 	MsgType    string    `gorm:"column:msg_type;size:16;default:text" json:"msg_type"` // text / image
+	Metadata   string    `gorm:"column:metadata;type:json" json:"metadata,omitempty"`  // R12：与 Message 保持一致
 	TenantID   string    `gorm:"column:tenant_id;size:64;index" json:"tenant_id"`
 	TicketID   *uint64   `gorm:"column:ticket_id;index" json:"ticket_id,omitempty"`
 	IsRead     int       `gorm:"column:is_read;type:tinyint(1);default:0" json:"is_read"`
@@ -96,7 +98,8 @@ type MessageWithArchive struct {
 	ThreadID  string    `json:"thread_id"`
 	Role      string    `json:"role"`
 	Content   string    `json:"content"`
-	MsgType   string    `json:"msg_type"` // text / image
+	MsgType   string    `json:"msg_type"`           // text / image
+	Metadata  string    `json:"metadata,omitempty"` // R12：引用来源 JSON
 	TenantID  string    `json:"tenant_id"`
 	TicketID  *uint64   `json:"ticket_id,omitempty"`
 	IsRead    int       `json:"is_read"`
@@ -115,24 +118,24 @@ type Tenant struct {
 
 // TenantRow tenants 表模型（显式表名，避免 gorm 复数化）
 type TenantRow struct {
-	ID              uint64    `gorm:"primaryKey" json:"id"`
-	TenantID        string    `gorm:"column:tenant_id;size:64;unique" json:"tenant_id"`
-	Name            string    `gorm:"column:name;size:128" json:"name"`
-	AppKey          string    `gorm:"column:app_key;size:64;unique" json:"app_key"`
-	AppSecretHash   string    `gorm:"column:app_secret_hash;size:255" json:"-"`
-	IsPlatformAdmin bool      `gorm:"column:is_platform_admin" json:"is_platform_admin"`
-	Status          int            `gorm:"column:status;type:tinyint(1)" json:"status"` // 1正常 0禁用
+	ID              uint64 `gorm:"primaryKey" json:"id"`
+	TenantID        string `gorm:"column:tenant_id;size:64;unique" json:"tenant_id"`
+	Name            string `gorm:"column:name;size:128" json:"name"`
+	AppKey          string `gorm:"column:app_key;size:64;unique" json:"app_key"`
+	AppSecretHash   string `gorm:"column:app_secret_hash;size:255" json:"-"`
+	IsPlatformAdmin bool   `gorm:"column:is_platform_admin" json:"is_platform_admin"`
+	Status          int    `gorm:"column:status;type:tinyint(1)" json:"status"` // 1正常 0禁用
 	// RBAC 预置角色初始化标记：0=从未初始化（首次访问种 admin/staff），1=已初始化（即使角色被删光也不补种）
-	RbacSeeded      bool           `gorm:"column:rbac_seeded;type:tinyint(1);default:0" json:"-"`
-	CreatedAt       time.Time      `gorm:"column:created_at" json:"created_at"`
-	DeletedAt       soft_delete.DeletedAt `gorm:"column:deleted_at;index" json:"-"` // 软删除
+	RbacSeeded bool                  `gorm:"column:rbac_seeded;type:tinyint(1);default:0" json:"-"`
+	CreatedAt  time.Time             `gorm:"column:created_at" json:"created_at"`
+	DeletedAt  soft_delete.DeletedAt `gorm:"column:deleted_at;index" json:"-"` // 软删除
 	// 模型配置（BYOK）
-	ModelProvider string `gorm:"column:model_provider;size:32" json:"model_provider"` // platform=平台默认, custom=租户自定义
+	ModelProvider    string `gorm:"column:model_provider;size:32" json:"model_provider"`         // platform=平台默认, custom=租户自定义
 	ModelProviderKey string `gorm:"column:model_provider_key;size:64" json:"model_provider_key"` // 模型提供商标识，如 deepseek/qwen
 	// 模型提供商 ID（关联 model_providers.id，普通字段不建外键）：
 	// llm_provider_id>0 → 使用该提供商的 default_model/default_api_base，API Key 取本行 model_api_key
 	// =0/null → 兼容旧数据：走下方手填字段
-	LlmProviderID      uint64 `gorm:"column:llm_provider_id" json:"llm_provider_id"`
+	LlmProviderID uint64 `gorm:"column:llm_provider_id" json:"llm_provider_id"`
 	ModelName     string `gorm:"column:model_name;size:128" json:"model_name"`         // 模型名称，为空用平台默认
 	ModelAPIKey   string `gorm:"column:model_api_key;size:512" json:"-"`               // AES加密后的API Key（租户自身密钥），不返显
 	ModelAPIBase  string `gorm:"column:model_api_base;size:256" json:"model_api_base"` // 自定义API Base URL
@@ -143,12 +146,12 @@ type TenantRow struct {
 	ChatOutputPrice     float64 `gorm:"column:chat_output_price;type:decimal(10,4);default:0" json:"chat_output_price"`
 	EmbeddingPrice      float64 `gorm:"column:embedding_price;type:decimal(10,4);default:0" json:"embedding_price"`
 	// Embedding 模型配置（BYOK，用于知识库向量化）
-	EmbeddingProvider   string `gorm:"column:embedding_provider;size:32" json:"embedding_provider"`     // platform=平台默认, custom=租户自定义
+	EmbeddingProvider    string `gorm:"column:embedding_provider;size:32" json:"embedding_provider"`         // platform=平台默认, custom=租户自定义
 	EmbeddingProviderKey string `gorm:"column:embedding_provider_key;size:64" json:"embedding_provider_key"` // embedding 提供商标识
-	EmbeddingProviderID uint64 `gorm:"column:embedding_provider_id" json:"embedding_provider_id"`
-	EmbeddingModelName  string `gorm:"column:embedding_model_name;size:128" json:"embedding_model_name"` // embedding模型名称
-	EmbeddingAPIKey     string `gorm:"column:embedding_api_key;size:512" json:"-"`                       // AES加密后的embedding API Key
-	EmbeddingAPIBase    string `gorm:"column:embedding_api_base;size:256" json:"embedding_api_base"`     // embedding API Base URL
+	EmbeddingProviderID  uint64 `gorm:"column:embedding_provider_id" json:"embedding_provider_id"`
+	EmbeddingModelName   string `gorm:"column:embedding_model_name;size:128" json:"embedding_model_name"` // embedding模型名称
+	EmbeddingAPIKey      string `gorm:"column:embedding_api_key;size:512" json:"-"`                       // AES加密后的embedding API Key
+	EmbeddingAPIBase     string `gorm:"column:embedding_api_base;size:256" json:"embedding_api_base"`     // embedding API Base URL
 
 	// 配额（P1-2）：0 表示不限制
 	MaxConcurrentSessions int `gorm:"column:max_concurrent_sessions;default:100" json:"max_concurrent_sessions"`
@@ -179,17 +182,17 @@ type ExtractRule struct {
 
 // CustomerProfile 客户信息（会话维度：正则自动提取 phone/email + 后台人工补全 name/address/remark）
 type CustomerProfile struct {
-	ID            uint64         `gorm:"primaryKey" json:"id"`
-	ThreadID      string         `gorm:"column:thread_id;size:255;unique" json:"thread_id"`
-	TenantID      string         `gorm:"column:tenant_id;size:64;index" json:"tenant_id"`
-	Name          string         `gorm:"column:name;size:64" json:"name"`
-	Phone         string         `gorm:"column:phone;size:32" json:"phone"`
-	Address       string         `gorm:"column:address;size:255" json:"address"`
-	Email         string         `gorm:"column:email;size:128" json:"email"`
-	Remark        string         `gorm:"column:remark;size:500" json:"remark"`
-	ExtractStatus int            `gorm:"column:extract_status;type:tinyint(1);default:0" json:"extract_status"` // 0=未提取 1=自动提取 2=人工填写
-	CreatedAt     time.Time      `gorm:"column:created_at" json:"created_at"`
-	UpdatedAt     time.Time      `gorm:"column:updated_at" json:"updated_at"`
+	ID            uint64                `gorm:"primaryKey" json:"id"`
+	ThreadID      string                `gorm:"column:thread_id;size:255;unique" json:"thread_id"`
+	TenantID      string                `gorm:"column:tenant_id;size:64;index" json:"tenant_id"`
+	Name          string                `gorm:"column:name;size:64" json:"name"`
+	Phone         string                `gorm:"column:phone;size:32" json:"phone"`
+	Address       string                `gorm:"column:address;size:255" json:"address"`
+	Email         string                `gorm:"column:email;size:128" json:"email"`
+	Remark        string                `gorm:"column:remark;size:500" json:"remark"`
+	ExtractStatus int                   `gorm:"column:extract_status;type:tinyint(1);default:0" json:"extract_status"` // 0=未提取 1=自动提取 2=人工填写
+	CreatedAt     time.Time             `gorm:"column:created_at" json:"created_at"`
+	UpdatedAt     time.Time             `gorm:"column:updated_at" json:"updated_at"`
 	DeletedAt     soft_delete.DeletedAt `gorm:"column:deleted_at;index" json:"-"` // 软删除
 }
 
@@ -197,16 +200,16 @@ func (CustomerProfile) TableName() string { return "customer_profiles" }
 
 // QuickReply 快捷回复话术（租户级）
 type QuickReply struct {
-	ID         uint64         `gorm:"primaryKey" json:"id"`
-	TenantID   string         `gorm:"column:tenant_id;size:64;index" json:"tenant_id"`
-	Category   string         `gorm:"column:category;size:50;default:通用" json:"category"` // 分类：退款/物流/投诉/欢迎...
-	Title      string         `gorm:"column:title;size:100" json:"title"`                 // 话术标题
-	Content    string         `gorm:"column:content;type:text" json:"content"`            // 回复正文
-	Sort       int            `gorm:"column:sort;default:0" json:"sort"`
-	IsActive   int            `gorm:"column:is_active;type:tinyint(1);default:1" json:"is_active"` // 1启用 0停用
-	CreatedAt  time.Time      `gorm:"column:created_at" json:"created_at"`
-	UpdatedAt  time.Time      `gorm:"column:updated_at" json:"updated_at"`
-	DeletedAt  soft_delete.DeletedAt `gorm:"column:deleted_at;index" json:"-"` // 软删除
+	ID        uint64                `gorm:"primaryKey" json:"id"`
+	TenantID  string                `gorm:"column:tenant_id;size:64;index" json:"tenant_id"`
+	Category  string                `gorm:"column:category;size:50;default:通用" json:"category"` // 分类：退款/物流/投诉/欢迎...
+	Title     string                `gorm:"column:title;size:100" json:"title"`                 // 话术标题
+	Content   string                `gorm:"column:content;type:text" json:"content"`            // 回复正文
+	Sort      int                   `gorm:"column:sort;default:0" json:"sort"`
+	IsActive  int                   `gorm:"column:is_active;type:tinyint(1);default:1" json:"is_active"` // 1启用 0停用
+	CreatedAt time.Time             `gorm:"column:created_at" json:"created_at"`
+	UpdatedAt time.Time             `gorm:"column:updated_at" json:"updated_at"`
+	DeletedAt soft_delete.DeletedAt `gorm:"column:deleted_at;index" json:"-"` // 软删除
 }
 
 func (QuickReply) TableName() string { return "quick_replies" }
@@ -269,11 +272,12 @@ type SessionSummary struct {
 }
 
 func (SessionSummary) TableName() string { return "session_summaries" }
+
 // ModelProvider 模型提供商（平台管理员可增删改）
 // 仅维护提供商元信息：名称 + 请求地址 + 默认模型名。API Key 不存此表，
 // 租户的 Key 存 tenants.model_api_key / tenants.embedding_api_key（AES 密文）。
 type ModelProvider struct {
-	ID             uint64    `gorm:"primaryKey" json:"id"`
+	ID uint64 `gorm:"primaryKey" json:"id"`
 	// 联合唯一 (provider_key, provider_type)：同一提供商可同时提供 chat 与 embedding
 	ProviderKey    string    `gorm:"column:provider_key;size:64;uniqueIndex:uni_model_providers_key_type" json:"provider_key"`
 	ProviderName   string    `gorm:"column:provider_name;size:128" json:"provider_name"`
@@ -291,13 +295,13 @@ func (ModelProvider) TableName() string { return "model_providers" }
 // AuditLog 管理端操作审计日志（P1-3，MySQL 业务库）
 type AuditLog struct {
 	ID         uint64    `gorm:"primaryKey" json:"id"`
-	TenantID   string    `gorm:"column:tenant_id;size:64;index" json:"tenant_id"` // 平台管理员操作记 t_admin
-	Operator   string    `gorm:"column:operator;size:64" json:"operator"`         // 操作人标识（tenant_id 或 app_key）
-	UserID     uint64    `gorm:"column:user_id" json:"user_id"`                   // 子账号用户ID（0=app_key管理员），用于区分同名历史操作
-	Action     string    `gorm:"column:action;size:32" json:"action"`             // create/update/delete/takeover/login
+	TenantID   string    `gorm:"column:tenant_id;size:64;index" json:"tenant_id"`     // 平台管理员操作记 t_admin
+	Operator   string    `gorm:"column:operator;size:64" json:"operator"`             // 操作人标识（tenant_id 或 app_key）
+	UserID     uint64    `gorm:"column:user_id" json:"user_id"`                       // 子账号用户ID（0=app_key管理员），用于区分同名历史操作
+	Action     string    `gorm:"column:action;size:32" json:"action"`                 // create/update/delete/takeover/login
 	ObjectType string    `gorm:"column:object_type;size:32;index" json:"object_type"` // ticket/prompt/knowledge/tenant/model_config/model_provider/session
-	ObjectID   string    `gorm:"column:object_id;size:128" json:"object_id"`      // 对象标识（工单号/租户ID/文档ID等）
-	Detail     string    `gorm:"column:detail;type:text" json:"detail"`           // 变更摘要（JSON）
+	ObjectID   string    `gorm:"column:object_id;size:128" json:"object_id"`          // 对象标识（工单号/租户ID/文档ID等）
+	Detail     string    `gorm:"column:detail;type:text" json:"detail"`               // 变更摘要（JSON）
 	IP         string    `gorm:"column:ip;size:64" json:"ip"`
 	CreatedAt  time.Time `gorm:"column:created_at" json:"created_at"`
 }
@@ -311,18 +315,18 @@ func (AuditLog) TableName() string { return "audit_logs" }
 // 软删用 gorm.io/plugin/soft_delete（bigint 毫秒时间戳，0=未删）：
 // 唯一索引 uni_users_tenant_username 含 deleted_at，软删行不再占用用户名、可重建同名；查询自动过滤 deleted_at != 0
 type User struct {
-	ID           uint64               `gorm:"primaryKey" json:"id"`
-	TenantID     string               `gorm:"column:tenant_id;size:64;index" json:"tenant_id"`
-	Username     string               `gorm:"column:username;size:64" json:"username"`
-	PasswordHash string               `gorm:"column:password_hash;size:255" json:"-"`
-	Nickname     string               `gorm:"column:nickname;size:64" json:"nickname"`
-	Phone        string               `gorm:"column:phone;size:32" json:"phone"`
-	Email        string               `gorm:"column:email;size:128" json:"email"`
-	Remark       string               `gorm:"column:remark;size:500" json:"remark"`
-	Status       int                  `gorm:"column:status;type:tinyint(1);default:1" json:"status"` // 1正常 0禁用
-	LastLoginAt  *time.Time           `gorm:"column:last_login_at" json:"last_login_at"`
-	CreatedAt    time.Time            `gorm:"column:created_at" json:"created_at"`
-	UpdatedAt    time.Time            `gorm:"column:updated_at" json:"updated_at"`
+	ID           uint64                `gorm:"primaryKey" json:"id"`
+	TenantID     string                `gorm:"column:tenant_id;size:64;index" json:"tenant_id"`
+	Username     string                `gorm:"column:username;size:64" json:"username"`
+	PasswordHash string                `gorm:"column:password_hash;size:255" json:"-"`
+	Nickname     string                `gorm:"column:nickname;size:64" json:"nickname"`
+	Phone        string                `gorm:"column:phone;size:32" json:"phone"`
+	Email        string                `gorm:"column:email;size:128" json:"email"`
+	Remark       string                `gorm:"column:remark;size:500" json:"remark"`
+	Status       int                   `gorm:"column:status;type:tinyint(1);default:1" json:"status"` // 1正常 0禁用
+	LastLoginAt  *time.Time            `gorm:"column:last_login_at" json:"last_login_at"`
+	CreatedAt    time.Time             `gorm:"column:created_at" json:"created_at"`
+	UpdatedAt    time.Time             `gorm:"column:updated_at" json:"updated_at"`
 	DeletedAt    soft_delete.DeletedAt `gorm:"column:deleted_at;index" json:"-"`
 }
 
@@ -339,17 +343,16 @@ func (UserRole) TableName() string { return "user_roles" }
 // Role 角色：权限经 sys_role_menu 关联 menus（角色存菜单勾选集合）
 // DeletedAt：软删除（删除保留记录，查询/分配自动过滤）
 type Role struct {
-	ID          uint64   `gorm:"primaryKey" json:"id"`
-	TenantID    string   `gorm:"column:tenant_id;size:64;index" json:"tenant_id"`
-	Code        string   `gorm:"column:code;size:32" json:"code"` // admin/staff/custom
-	Name        string   `gorm:"column:name;size:64" json:"name"`
-	Description string   `gorm:"column:description;size:255" json:"description"`
-	MenuIDs     []uint64 `gorm:"-" json:"menu_ids"`                  // 关联菜单ID（授权回显/保存）
-	IsAdmin     bool     `gorm:"-" json:"is_admin"`                   // 计算字段：权限覆盖全量=管理员角色（admin 角色可删可改，以权限为准）
-	CreatedAt   time.Time `gorm:"column:created_at" json:"created_at"`
-	UpdatedAt   time.Time `gorm:"column:updated_at" json:"updated_at"`
+	ID          uint64                `gorm:"primaryKey" json:"id"`
+	TenantID    string                `gorm:"column:tenant_id;size:64;index" json:"tenant_id"`
+	Code        string                `gorm:"column:code;size:32" json:"code"` // admin/staff/custom
+	Name        string                `gorm:"column:name;size:64" json:"name"`
+	Description string                `gorm:"column:description;size:255" json:"description"`
+	MenuIDs     []uint64              `gorm:"-" json:"menu_ids"` // 关联菜单ID（授权回显/保存）
+	IsAdmin     bool                  `gorm:"-" json:"is_admin"` // 计算字段：权限覆盖全量=管理员角色（admin 角色可删可改，以权限为准）
+	CreatedAt   time.Time             `gorm:"column:created_at" json:"created_at"`
+	UpdatedAt   time.Time             `gorm:"column:updated_at" json:"updated_at"`
 	DeletedAt   soft_delete.DeletedAt `gorm:"column:deleted_at;index" json:"-"`
 }
 
 func (Role) TableName() string { return "roles" }
-

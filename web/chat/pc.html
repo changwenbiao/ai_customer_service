@@ -59,6 +59,14 @@ html,body{height:100%;width:100%;overflow:hidden;background:#f5f6f8}
 .msg.ai .time{text-align:left}
 .msg.user .time{text-align:right}
 
+/* R12：引用来源折叠面板 */
+.citations{margin-top:6px;font-size:12px}
+.citations-header{color:#1890ff;cursor:pointer;padding:2px 0;user-select:none}
+.citations-header:hover{text-decoration:underline}
+.citations-body{margin-top:4px;padding:8px 10px;background:#f9f9f9;border:1px solid #eee;border-radius:6px}
+.citation-item{color:#666;padding:3px 0;line-height:1.5;border-bottom:1px solid #f0f0f0}
+.citation-item:last-child{border-bottom:none}
+
 /* 系统消息 */
 .msg.system{align-self:center;max-width:90%}
 .msg.system .bubble{
@@ -420,7 +428,7 @@ function handleWSMessage(data){
       appendStreamChunk(data.chunk);
       break;
     case 'chat_end':
-      endStreaming(data.msg);
+      endStreaming(data.msg, data.citations);
       // 上报已读
       if (!document.hidden) {
         setTimeout(markAsRead, 1000);
@@ -498,7 +506,12 @@ function renderHistory(messages){
     } else if (role === 'system' || role === 'notice') {
       addSystemMessage(content, true);
     } else {
-      addAIMessage(content, false, m.created_at || m.timestamp, true);
+      // R12：解析 metadata（Go 存的 citations JSON）
+      var aiCitations = null;
+      if (m.metadata) {
+        try { aiCitations = JSON.parse(m.metadata); } catch(e) { aiCitations = null; }
+      }
+      addAIMessage(content, false, m.created_at || m.timestamp, true, aiCitations);
     }
   });
   scrollToBottom();
@@ -533,7 +546,7 @@ function addVideoMessage(url, isHuman, time, noScroll){
 }
 
 
-function addAIMessage(text, isHuman, time, noScroll){
+function addAIMessage(text, isHuman, time, noScroll, citations){
   var body = document.getElementById('chatBody');
   var div = document.createElement('div');
   div.className = 'msg ai';
@@ -541,6 +554,13 @@ function addAIMessage(text, isHuman, time, noScroll){
   div.innerHTML = '<div style="font-size:24px;flex-shrink:0;margin-top:4px">'+avatar+'</div><div><div class="bubble"></div><div class="time"></div></div>';
   div.querySelector('.bubble').textContent = text;
   div.querySelector('.time').textContent = formatTime(time);
+  // R12：历史消息带 citations 时渲染
+  if (citations && citations.length > 0) {
+    var citationsEl = renderCitations(citations);
+    if (citationsEl) {
+      div.appendChild(citationsEl);
+    }
+  }
   body.appendChild(div);
   if (!noScroll) scrollToBottom();
 }
@@ -613,7 +633,7 @@ function appendStreamChunk(chunk){
   scrollToBottom();
 }
 
-function endStreaming(fullText){
+function endStreaming(fullText, citations){
   if (streamingEl) {
     if (fullText) {
       streamingText = fullText;
@@ -621,9 +641,48 @@ function endStreaming(fullText){
     }
     streamingEl.id = '';
     streamingEl = null;
+    // R12：渲染引用来源（如果有）
+    if (citations && citations.length > 0) {
+      var citationsEl = renderCitations(citations);
+      if (citationsEl) {
+        // streamingText 最后一次 append 后 streamingEl 已设 null，
+        // 但 chat_end 时 streamingEl 还指向那个 bubble 的父容器
+        // 实际上 endStreaming 时 streamingEl 已被清空，改用最后一条 msg 追加
+        var lastMsg = document.querySelector('#chatBody .msg.ai:last-of-type');
+        if (lastMsg) {
+          lastMsg.appendChild(citationsEl);
+        }
+      }
+    }
     scrollToBottom();
   }
   postToParent('cs_message', {role: 'ai', content: streamingText});
+}
+
+// R12 Step 4：渲染引用来源折叠面板
+function renderCitations(citations){
+  if (!citations || citations.length === 0) return null;
+  var container = document.createElement('div');
+  container.className = 'citations';
+  var header = document.createElement('div');
+  header.className = 'citations-header';
+  header.textContent = '参考来源（' + citations.length + '）';
+  header.onclick = function(){
+    var body = container.querySelector('.citations-body');
+    body.style.display = body.style.display === 'none' ? 'block' : 'none';
+  };
+  container.appendChild(header);
+  var body = document.createElement('div');
+  body.className = 'citations-body';
+  body.style.display = 'none';
+  citations.forEach(function(c){
+    var item = document.createElement('div');
+    item.className = 'citation-item';
+    item.textContent = '[' + c.index + '] ' + (c.title || '') + (c.section ? ' · ' + c.section : '') + (typeof c.score === 'number' ? ' · 分数 ' + c.score.toFixed(2) : '') + ' — ' + (c.snippet || '').substring(0, 120);
+    body.appendChild(item);
+  });
+  container.appendChild(body);
+  return container;
 }
 
 function cancelStreaming(){

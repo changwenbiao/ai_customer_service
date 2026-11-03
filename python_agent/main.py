@@ -143,6 +143,7 @@ from config import *
 
 # ====================== Tools（已拆分到 tools.py，采用 app 注入模式） ======================
 import tools
+from tools import reset_citations, get_citations, citation_guard  # R12：引用来源管理 + L3 校验
 
 
 
@@ -378,6 +379,7 @@ async def agent_chat(req: ChatRequest, request: Request):
     tenant_var.set(tenant_id)
     thread_var.set(thread_id)
     pending_ticket_var.set(req.has_pending_ticket)
+    reset_citations()  # R12：每次请求清空引用列表
     agent = await get_tenant_agent(request.app, tenant_id)
 
     config = {"configurable": {"thread_id": thread_id}}
@@ -399,7 +401,8 @@ async def agent_chat(req: ChatRequest, request: Request):
                 success=True,
                 is_interrupt=True,
                 interrupt_data=interrupt_info,
-                content=None
+                content=None,
+                citations=get_citations()  # R12：即使 interrupt 也带上已累积的引用
             )
         last_msg = messages[-1]
         # 取最后一条 AIMessage 作为最终回答，避免异常情况下取到 ToolMessage（工具返回的知识库片段）
@@ -407,12 +410,18 @@ async def agent_chat(req: ChatRequest, request: Request):
         if ai_msgs:
             last_msg = ai_msgs[-1]
         content = last_msg.content if hasattr(last_msg, "content") else ""
+        citations = get_citations()
+        # R12 Step 5：L3 后置引用校验
+        content, was_rejected = citation_guard(content, citations)
+        if was_rejected:
+            logger.info("[R12 citation_guard] reject triggered: thread=%s", thread_id)
         async with _pool_conn(request.app) as conn:
             await _record_usage_after_chat(request, conn, tenant_id, thread_id, messages)
         return AgentResp(
             success=True,
             is_interrupt=False,
-            content=content
+            content=content,
+            citations=citations
         )
     except Exception as e:
         logger.exception("/agent/chat error")
@@ -446,6 +455,7 @@ async def agent_chat_stream(req: ChatRequest, request: Request):
         tenant_var.set(tenant_id)
         thread_var.set(thread_id)
         pending_ticket_var.set(req.has_pending_ticket)
+        reset_citations()  # R12：每次请求清空引用列表
 
         # P1-2：并发活跃会话配额校验
         async with _pool_conn(request.app) as conn:
@@ -491,10 +501,16 @@ async def agent_chat_stream(req: ChatRequest, request: Request):
             except Exception as e:
                 logger.warning("aget_state failed, fallback to stream_msgs for usage: %s", e)
 
+            # R12 Step 5：L3 后置引用校验（在流式 end 之前做，chunk 不被截断）
+            stream_citations = get_citations()
+            final_full_content, was_rejected = citation_guard(full_content, stream_citations)
+            if was_rejected:
+                logger.info("[R12 citation_guard] stream reject triggered: thread=%s", thread_id)
+
             if is_interrupt:
-                yield f"data: {_json.dumps({'type':'interrupt','data':interrupt_data}, ensure_ascii=False)}\n\n"
+                yield f"data: {_json.dumps({'type':'interrupt','data':interrupt_data,'citations':stream_citations}, ensure_ascii=False)}\n\n"
             else:
-                yield f"data: {_json.dumps({'type':'end','content':full_content}, ensure_ascii=False)}\n\n"
+                yield f"data: {_json.dumps({'type':'end','content':final_full_content,'citations':stream_citations}, ensure_ascii=False)}\n\n"
 
             # P1-1：记录 token 用量 → 扔后台 task
             # 原因：SSE yield 完 end 事件后用户可能立刻断连（关页面/刷新），
@@ -521,6 +537,7 @@ async def agent_resume(req: ResumeRequest, request: Request):
     tenant_id = tenant_from_thread(thread_id)
     tenant_var.set(tenant_id)
     thread_var.set(thread_id)
+    reset_citations()  # R12：每次请求清空引用列表
 
     # P1-2：并发活跃会话配额校验
     async with _pool_conn(request.app) as conn:
@@ -551,12 +568,18 @@ async def agent_resume(req: ResumeRequest, request: Request):
         if ai_msgs:
             last_msg = ai_msgs[-1]
         content = last_msg.content if hasattr(last_msg, "content") else ""
+        citations = get_citations()
+        # R12 Step 5：L3 后置引用校验
+        content, was_rejected = citation_guard(content, citations)
+        if was_rejected:
+            logger.info("[R12 citation_guard] reject triggered: thread=%s", thread_id)
         async with _pool_conn(request.app) as conn:
             await _record_usage_after_chat(request, conn, tenant_id, thread_id, messages)
         return AgentResp(
             success=True,
             is_interrupt=False,
-            content=content
+            content=content,
+            citations=citations
         )
     except Exception as e:
         logger.exception("/agent/resume error")
