@@ -98,6 +98,42 @@ services:
       - cs-network
 
   # ==========================================================================
+  # 本地 Embedding 服务（HuggingFace TEI，OpenAI 兼容 /v1/embeddings）
+  # 模型 bge-small-zh-v1.5 已放在 deploy/embedding/ 下，启动即加载，无需联网
+  # Agent 侧在后台「平台模型配置」中将 embedding 地址配为 http://embedding:80/v1
+  # ==========================================================================
+  embedding:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.8
+    platform: linux/amd64
+    container_name: cs_embedding
+    restart: unless-stopped
+    command: ["--json-output"]
+    environment:
+      MODEL_ID: /models/bge-small-zh-v1.5
+      HUGGINGFACE_HUB_CACHE: /data
+      PORT: "80"
+      MAX_CONCURRENT_REQUESTS: "32"
+      MAX_BATCH_TOKENS: "2048"
+      RAYON_NUM_THREADS: "8"
+      MKL_ENABLE_INSTRUCTIONS: AVX512_E4
+      LD_PRELOAD: /usr/local/libfakeintel.so
+      LD_LIBRARY_PATH: /usr/local/lib
+    volumes:
+      # 模型目录可用 EMBEDDING_MODEL_PATH 覆盖（服务器上可挂载单独的数据盘）
+      - ${EMBEDDING_MODEL_PATH:-./deploy/embedding/bge-small-zh-v1.5}:/models/bge-small-zh-v1.5:ro
+    ports:
+      # 仅绑定回环地址：容器内 Agent 走 cs-network，宿主机调试才用 8081
+      - "127.0.0.1:${EMBEDDING_PORT:-8081}:80"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    networks:
+      - cs-network
+
+  # ==========================================================================
   # 业务服务：Agent + Go 网关 + Nginx
   # ==========================================================================
   agent:
@@ -132,6 +168,8 @@ services:
       qdrant:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      embedding:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/docs', timeout=3)\""]

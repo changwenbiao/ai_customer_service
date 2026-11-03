@@ -1,6 +1,7 @@
 # .gitignore
 .env
 **/.env
+**/.env.local
 __pycache__/
 *.pyc
 
@@ -37,19 +38,17 @@ data/
 
 # 一次性临时脚本（不跟踪）
 scripts/_*.sh
-/.idea/ai_customer_service.iml
-/.idea/modules.xml
-/.idea/inspectionProfiles/profiles_settings.xml
-/.idea/vcs.xml
-/.idea/misc.xml
-/.idea/ai-customer-service.iml
-/python_agent/.idea/inspectionProfiles/profiles_settings.xml
-/python_agent/.idea/modules.xml
-/python_agent/.idea/python_agent.iml
-/python_agent/.idea/vcs.xml
+
+# 本地 Embedding 模型（体积较大，按需部署，不入库）
+deploy/embedding/bge-small-zh-v1.5/
+
+# IDE 工程配置入库（运行配置、模块、代码风格等随仓库共享）
+# 仅忽略本机运行状态，避免跨机器冲突
 .venv/
-/python_agent/.idea/runConfigurations/Attach_to_agent_debugpy.xml
+**/.idea/workspace.xml
+**/.idea/shelf/
+**/.idea/httpRequests/
+**/.idea/dataSources/
+**/.idea/dataSources.local.xml
+.DS_Store
 /pyproject.toml
-/.idea/webResources.xml
-/python_agent/.idea/misc.xml
-/.idea/runConfigurations/Attach_to_agent_debugpy.xml

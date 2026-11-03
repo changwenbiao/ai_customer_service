@@ -4,8 +4,16 @@ os.environ["PYTHONIOENCODING"] = "utf-8"
 os.environ["LANG"] = "en_US.UTF-8"
 os.environ["LC_ALL"] = "en_US.UTF-8"
 
+from pathlib import Path
+
 from dotenv import load_dotenv
-load_dotenv("../.env")
+
+# 环境变量加载：与运行目录无关
+# 1) 仓库根目录 .env（容器内由 env_file 注入，文件不存在时无影响）
+# 2) python_agent/.env.local 本地调试覆盖（override=True），用于把容器内服务名改成 127.0.0.1
+_AGENT_DIR = Path(__file__).resolve().parent
+load_dotenv(_AGENT_DIR.parent / ".env")
+load_dotenv(_AGENT_DIR / ".env.local", override=True)
 
 import asyncio
 import logging

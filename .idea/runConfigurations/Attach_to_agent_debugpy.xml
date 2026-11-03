@@ -1,0 +1,11 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Attach to agent (debugpy)" type="PythonDapAttachConfiguration" factoryName="PythonDapAttachConfiguration">
+    <option name="remoteAddress" value="127.0.0.1:5678" />
+    <option name="justMyCode" value="false" />
+    <pathMappings>
+      <mapping local="$PROJECT_DIR$/python_agent/.venv/lib/python3.13/site-packages" remote="/usr/local/lib/python3.13/site-packages" />
+      <mapping local="$PROJECT_DIR$/python_agent" remote="/app" />
+    </pathMappings>
+    <method v="2" />
+  </configuration>
+</component>

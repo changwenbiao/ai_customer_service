@@ -1,5 +1,8 @@
 .git/
 .gitignore
+.env
+.env.local
+**/.env.local
 deploy/
 !deploy/nginx.conf
 # nginx.Dockerfile 多阶段构建需要 admin-app 源码（go 镜像仅 COPY go_service/，不受影响）

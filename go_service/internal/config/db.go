@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"customer_service/internal/model"
@@ -39,15 +40,19 @@ type Config struct {
 
 // AuthConfig 鉴权与租户配置
 type AuthConfig struct {
-	Enabled  bool     `yaml:"enabled"`
-	TokenTTL string   `yaml:"token_ttl"`
+	Enabled  bool           `yaml:"enabled"`
+	TokenTTL string         `yaml:"token_ttl"`
 	Tenants  []model.Tenant `yaml:"tenants"`
 }
+
 var GlobalConfig Config
 var DB *gorm.DB
 
 // LoadConfig 加载配置：YAML 文件 + 环境变量覆盖
 func LoadConfig(path string) error {
+	// 本地开发：存在 go_service/.env.local 时先加载（容器内无此文件，不影响线上）
+	loadLocalEnv(".env.local")
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -100,8 +105,36 @@ func LoadConfig(path string) error {
 	if GlobalConfig.Server.Port == "" {
 		GlobalConfig.Server.Port = ":8080"
 	}
+	// 本地多服务并存时端口可能冲突（nginx 占用 8080），允许环境变量改监听端口
+	if v := os.Getenv("CS_SERVER_PORT"); v != "" {
+		GlobalConfig.Server.Port = v
+	}
 
 	return nil
+}
+
+// loadLocalEnv 读取本地开发环境文件（KEY=VALUE 形式）
+// 仅文件存在时生效；已存在的进程环境变量优先，避免覆盖容器注入的配置
+func loadLocalEnv(path string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		value = strings.Trim(strings.TrimSpace(value), `"'`)
+		if key != "" && os.Getenv(key) == "" {
+			_ = os.Setenv(key, value)
+		}
+	}
 }
 
 // ValidateConfig P4-4：配置验证，启动时检查关键配置

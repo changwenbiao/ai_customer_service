@@ -25,10 +25,18 @@ const (
 
 	// 视频最大 50MB（美洽视频消息同规格）；格式 mp4/webm（浏览器原生播放）
 	MsgVideoMaxMB   = 50
-	msgFileRoot     = "/app/msg_files"
 	msgImageMaxSize = MsgFileMaxMB * 1024 * 1024
 	msgVideoMaxSize = MsgVideoMaxMB * 1024 * 1024
 )
+
+// msgFileRoot 会话文件落盘目录：容器内为 /app/msg_files（与 nginx 共享卷）；
+// 本地调试可用 CS_MSG_FILE_ROOT 指向仓库 data/msg_files，由 nginx bind mount 静态服务
+var msgFileRoot = func() string {
+	if v := os.Getenv("CS_MSG_FILE_ROOT"); v != "" {
+		return v
+	}
+	return "/app/msg_files"
+}()
 
 var msgImageExts = map[string]bool{
 	".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".webp": true,

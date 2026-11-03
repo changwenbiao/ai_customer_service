@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectModuleManager">
+    <modules>
+      <module fileurl="file://$PROJECT_DIR$/.idea/ai-customer-service.iml" filepath="$PROJECT_DIR$/.idea/ai-customer-service.iml" />
+      <module fileurl="file://$PROJECT_DIR$/python_agent/.idea/python_agent.iml" filepath="$PROJECT_DIR$/python_agent/.idea/python_agent.iml" />
+    </modules>
+  </component>
+</project>
