@@ -19,10 +19,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends tzdata \
 
 COPY requirements.txt .
 # pip 缓存挂载：依赖层失效时仍可复用已下载的 wheel，避免重复下载
-# 先装 CPU 版 torch（~200MB，比默认 CUDA 版 ~2GB 小很多），再装其余依赖
+# 一步装完所有依赖：index-url 主源指向 torch CPU 镜像（~200MB，比 CUDA 版 2.5GB+ 小一个数量级），
+# extra-index-url 兜底清华 PyPI。分两步会让第二步找不到 torch（--prefix=/install 非系统路径），
+# 从而误拉 PyPI 默认 CUDA 全家桶（nvidia-cudnn/nccl/cublas/cusolver... 合计 2.5GB+）。
 RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
-    pip install --prefix=/install torch --index-url https://mirror.sjtu.edu.cn/pytorch-wheels/cpu \
-    && pip install --prefix=/install -r requirements.txt
+    pip install --prefix=/install \
+    --index-url https://mirror.sjtu.edu.cn/pytorch-wheels/cpu \
+    --extra-index-url https://pypi.tuna.tsinghua.edu.cn/simple \
+    -r requirements.txt
 
 # 预下载 bge-reranker-v2-m3 模型：先落到 BuildKit 缓存，再复制进镜像层
 # 这样即使依赖层变化，也不会重新走网络下载

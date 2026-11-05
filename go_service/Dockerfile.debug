@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.4
 # 仅供远程调试使用，不要用于生产
 # 与 go_service/Dockerfile 的差异：
 #   1) 构建时关闭内联与优化（-N -l），保证断点与变量查看可用
@@ -5,12 +6,17 @@
 FROM golang:1.25-alpine AS builder
 WORKDIR /build
 ENV GOPROXY=https://goproxy.cn,direct
+# go 模块缓存：只在 go.mod/go.sum 变化时才重新下载依赖
 COPY go_service/go.mod go_service/go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 COPY go_service/ .
 RUN go mod tidy
-RUN CGO_ENABLED=0 go build -gcflags="all=-N -l" -o go_service .
-RUN go install github.com/go-delve/delve/cmd/dlv@latest
+# go 构建缓存：改源码不重拉依赖，增量编译
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -gcflags="all=-N -l" -o go_service .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go install github.com/go-delve/delve/cmd/dlv@latest
 
 FROM alpine:3.24
 RUN apk add --no-cache tzdata
