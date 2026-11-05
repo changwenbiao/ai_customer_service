@@ -49,6 +49,10 @@ func saveAIMessage(threadID, content, metadata string, ticketID *uint64) error {
 	if content == "" {
 		return nil
 	}
+	// MySQL JSON 列不接受空串，统一兜底为合法 JSON 对象
+	if metadata == "" {
+		metadata = "{}"
+	}
 	m := model.Message{
 		ThreadID: threadID,
 		Role:     "ai",
@@ -64,10 +68,10 @@ func saveAIMessage(threadID, content, metadata string, ticketID *uint64) error {
 	return nil
 }
 
-// CitationsJSON R12：序列化引用来源列表，空时返回空串（避免 "[]" 污染历史）
+// CitationsJSON R12：序列化引用来源列表，空时返回 "{}"（合法 JSON，避免 MySQL JSON 列空串报错）
 func CitationsJSON(cs []agent.Citation) string {
 	if len(cs) == 0 {
-		return ""
+		return "{}"
 	}
 	b, _ := json.Marshal(cs)
 	return string(b)
@@ -93,6 +97,8 @@ func saveMessage(threadID, role, content, msgType string, ticketID *uint64) erro
 		TenantID: auth.TenantFromThreadID(threadID),
 		TicketID: ticketID,
 		IsRead:   isRead,
+		// Metadata 零值兜底：MySQL JSON 列不接受空串，显式给合法 JSON 对象
+		Metadata: "{}",
 	}
 	if err := config.DB.Create(&m).Error; err != nil {
 		return err
