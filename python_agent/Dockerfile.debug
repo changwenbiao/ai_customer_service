@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.4
 # 仅供远程调试使用，不要用于生产
 # 与 python_agent/Dockerfile 的差异：
 #   1) 额外安装 debugpy
@@ -19,21 +20,30 @@ RUN apt-get update && apt-get install -y --no-install-recommends tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
+# pip 缓存挂载：依赖层失效时仍可复用已下载的 wheel，避免重复下载
 # 先装 CPU 版 torch（~200MB，比默认 CUDA 版 ~2GB 小很多），再装其余依赖
-RUN pip install --no-cache-dir --prefix=/install torch --index-url https://mirror.sjtu.edu.cn/pytorch-wheels/cpu \
-    && pip install --no-cache-dir --prefix=/install -r requirements.txt \
-    && pip install --no-cache-dir --prefix=/install "debugpy>=1.8,<2"
+RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
+    pip install --prefix=/install torch --index-url https://mirror.sjtu.edu.cn/pytorch-wheels/cpu \
+    && pip install --prefix=/install -r requirements.txt \
+    && pip install --prefix=/install "debugpy>=1.8,<2"
 
-COPY . .
-
-# 预下载 bge-reranker-v2-m3 模型，避免运行时首次调用才下载
-# pip 用 --prefix=/install 安装，需指定 PYTHONPATH 才能 import
-RUN PYTHONPATH=/install/lib/python3.13/site-packages python -c \
-    "from FlagEmbedding import FlagReranker; FlagReranker('BAAI/bge-reranker-v2-m3', use_fp16=False)"
+# 预下载 bge-reranker-v2-m3 模型：先落到 BuildKit 缓存，再复制进镜像层
+# 这样即使依赖层变化，也不会重新走网络下载
+RUN --mount=type=cache,target=/opt/hf-cache,sharing=locked \
+    HF_HOME=/opt/hf-cache PYTHONPATH=/install/lib/python3.13/site-packages python -c \
+    "from FlagEmbedding import FlagReranker; FlagReranker('BAAI/bge-reranker-v2-m3', use_fp16=False)" \
+    && mkdir -p /opt/huggingface \
+    && cp -a /opt/hf-cache/. /opt/huggingface/
 
 # 预下载 fastembed 的 BM25 模型到固定缓存目录，运行时完全离线
-RUN PYTHONPATH=/install/lib/python3.13/site-packages python -c \
-    "from fastembed import SparseTextEmbedding; SparseTextEmbedding(model_name='Qdrant/bm25', language='english', disable_stemmer=True)"
+RUN --mount=type=cache,target=/opt/fastembed-cache,sharing=locked \
+    FASTEMBED_CACHE_PATH=/opt/fastembed-cache PYTHONPATH=/install/lib/python3.13/site-packages python -c \
+    "from fastembed import SparseTextEmbedding; SparseTextEmbedding(model_name='Qdrant/bm25', language='english', disable_stemmer=True)" \
+    && mkdir -p /opt/fastembed \
+    && cp -a /opt/fastembed-cache/. /opt/fastembed/
+
+# 源码放最后：改代码不会让上面的依赖和模型层失效
+COPY . .
 
 # -------------------------- 运行阶段 runtime（最终镜像） --------------------------
 FROM python:3.13-slim
